@@ -1,0 +1,63 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// A verified AWS SES sending identity (e.g. "no-reply@acme.com").
+model Sender {
+  id        String    @id @default(cuid())
+  name      String
+  email     String    @unique
+  region    String    @default("us-east-1")
+  createdAt DateTime  @default(now())
+  versions  Version[]
+}
+
+// Top-level group, e.g. "accounts". Maps to the first path segment.
+model Category {
+  id        String     @id @default(cuid())
+  slug      String     @unique
+  name      String
+  createdAt DateTime   @default(now())
+  templates Template[]
+}
+
+// An email template, e.g. "password-recovery". Unique within a category.
+model Template {
+  id         String    @id @default(cuid())
+  slug       String
+  name       String
+  categoryId String
+  category   Category  @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  versions   Version[]
+  createdAt  DateTime  @default(now())
+
+  @@unique([categoryId, slug])
+}
+
+enum VersionStatus {
+  DRAFT
+  PUBLISHED
+}
+
+// An immutable-ish version of a template. Every schema change creates a new one.
+model Version {
+  id         String        @id @default(cuid())
+  version    Int // exposed as "v{n}" in the send API
+  templateId String
+  template   Template      @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  subject    String        @default("")
+  mjml       String        @default("") // MJML source with Handlebars vars
+  jsonSchema Json          @default("{}") // JSON Schema describing render params
+  senderId   String?
+  sender     Sender?       @relation(fields: [senderId], references: [id], onDelete: SetNull)
+  status     VersionStatus @default(DRAFT)
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  @@unique([templateId, version])
+}
