@@ -6,7 +6,9 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/api": "http://localhost:4000",
+      // Match "/api/..." only — NOT the SPA route "/api-keys", which also
+      // starts with "/api" and would otherwise be proxied to the backend.
+      "^/api/": { target: "http://localhost:4000", changeOrigin: true },
     },
   },
 });
