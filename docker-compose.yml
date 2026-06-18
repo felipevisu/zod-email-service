@@ -10,6 +10,36 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mail -d maildb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      # Same single service Railway runs: backend + built UI on one port.
+      DATABASE_URL: postgresql://mail:mail@db:5432/maildb
+      PORT: 4000
+      # Local login: admin / admin. ADMIN_PASSWORD_HASH is bcrypt('admin');
+      # the $ chars are doubled ($$) so compose doesn't interpolate them.
+      JWT_SECRET: ${JWT_SECRET:-dev-local-secret-change-me}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:-$$2b$$10$$npP76KyLu0u6O0Y.yRxGt.ydNUNNCd.WJAQNvU45J3itwI3YMUlSi}
+      # Don't hit real SES locally; sends return { dryRun: true }.
+      SES_DRY_RUN: ${SES_DRY_RUN:-true}
+      # AWS creds, only needed when SES_DRY_RUN=false.
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+    ports:
+      - "4000:4000"
+    depends_on:
+      db:
+        condition: service_healthy
 
 volumes:
   pgdata:

@@ -1,6 +1,8 @@
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { errorMiddleware } from "./lib/http.js";
 import { requireUser } from "./lib/auth.js";
 import { auth } from "./routes/auth.js";
@@ -35,6 +37,19 @@ export function createApp() {
   // Public send API (consumed by internal services): /:category/:template/:version.
   // The send route itself is gated by a shared API key (see routes/send.ts).
   app.use("/", send);
+
+  // Serve the built frontend (single-service deploy). CLIENT_DIR overrides the
+  // default of "<cwd>/public", where the Docker build copies the Vite output.
+  const clientDir = process.env.CLIENT_DIR ?? path.resolve(process.cwd(), "public");
+  if (existsSync(clientDir)) {
+    app.use(express.static(clientDir));
+    // SPA fallback: any non-API GET returns index.html so client routes work.
+    // API/health/send are registered above and respond before this runs.
+    app.get("*", (req, res, next) => {
+      if (req.path.startsWith("/api/") || req.path === "/health") return next();
+      res.sendFile(path.join(clientDir, "index.html"));
+    });
+  }
 
   app.use(errorMiddleware);
   return app;
