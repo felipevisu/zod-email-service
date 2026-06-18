@@ -37,4 +37,4 @@ COPY --from=backend /app/backend/dist ./dist
 COPY --from=frontend /app/frontend/dist ./public
 
 EXPOSE 4000
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/index.js"]
+CMD ["sh", "-c", "npx prisma migrate deploy; node dist/index.js"]
