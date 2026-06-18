@@ -40,11 +40,12 @@ export function Card({ children, className = "" }: { children: ReactNode; classN
   return <div className={`bg-white border rounded-lg shadow-sm ${className}`}>{children}</div>;
 }
 
-export function Badge({ children, color = "slate" }: { children: ReactNode; color?: "slate" | "green" | "amber" }) {
+export function Badge({ children, color = "slate" }: { children: ReactNode; color?: "slate" | "green" | "amber" | "red" }) {
   const c = {
     slate: "bg-slate-100 text-slate-600",
     green: "bg-green-100 text-green-700",
     amber: "bg-amber-100 text-amber-700",
+    red: "bg-red-100 text-red-700",
   }[color];
   return <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${c}`}>{children}</span>;
 }

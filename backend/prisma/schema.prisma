@@ -44,6 +44,33 @@ enum VersionStatus {
   PUBLISHED
 }
 
+enum EmailStatus {
+  SENT
+  FAILED
+}
+
+// Audit log of every send attempt through the public send API.
+model EmailLog {
+  id          String      @id @default(cuid())
+  status      EmailStatus
+  to          String[]
+  subject     String      @default("")
+  category    String // category slug at send time
+  template    String // template slug at send time
+  version     Int
+  senderEmail String?
+  messageId   String? // SES message id (or "dry-run")
+  dryRun      Boolean     @default(false)
+  errorCode   String? // HttpError message / failure reason
+  errorDetail String? // longer error text
+  versionId   String? // soft link; kept even if the version is later deleted
+  createdAt   DateTime    @default(now())
+
+  @@index([createdAt])
+  @@index([status])
+  @@index([category, template])
+}
+
 // An immutable-ish version of a template. Every schema change creates a new one.
 model Version {
   id         String        @id @default(cuid())

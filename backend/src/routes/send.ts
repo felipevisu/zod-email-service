@@ -20,51 +20,161 @@ function parseVersionParam(raw: string): number {
   return Number(m[1]);
 }
 
+// Best-effort audit log; never let logging failures break the send response.
+async function logFailure(args: {
+  category: string;
+  template: string;
+  version: number;
+  to: string[];
+  subject?: string;
+  senderEmail?: string | null;
+  versionId?: string | null;
+  errorCode: string;
+  errorDetail?: unknown;
+}) {
+  try {
+    await prisma.emailLog.create({
+      data: {
+        status: "FAILED",
+        to: args.to,
+        subject: args.subject ?? "",
+        category: args.category,
+        template: args.template,
+        version: args.version,
+        senderEmail: args.senderEmail ?? null,
+        versionId: args.versionId ?? null,
+        errorCode: args.errorCode,
+        errorDetail:
+          args.errorDetail == null
+            ? null
+            : typeof args.errorDetail === "string"
+              ? args.errorDetail
+              : JSON.stringify(args.errorDetail),
+      },
+    });
+  } catch (e) {
+    console.error("failed to write email log", e);
+  }
+}
+
 /**
  * Public send endpoint, e.g. POST /accounts/password-recovery/v1
  *   body: { "to": "user@x.com", "data": { ...template params } }
  * The data is validated against the version's JSON Schema (via Zod) before render.
+ *
+ * Every attempt is recorded in EmailLog (success or failure) so usage is
+ * visible in the UI.
  */
 send.post(
   "/:category/:template/:version",
   h(async (req, res) => {
+    const { category, template } = req.params;
     const versionNumber = parseVersionParam(req.params.version);
+
+    // Resolve recipients early so failures can still be logged with a target.
+    const toList = (() => {
+      const raw = req.body?.to;
+      if (typeof raw === "string") return [raw];
+      if (Array.isArray(raw)) return raw.filter((x) => typeof x === "string");
+      return [];
+    })();
 
     const version = await prisma.version.findFirst({
       where: {
         version: versionNumber,
-        template: {
-          slug: req.params.template,
-          category: { slug: req.params.category },
-        },
+        template: { slug: template, category: { slug: category } },
       },
       include: { sender: true },
     });
 
-    if (!version) throw new HttpError(404, "email_version_not_found");
-    if (version.status !== "PUBLISHED")
-      throw new HttpError(409, "version_not_published", {
-        hint: "Publish this version before sending.",
-      });
-    if (!version.sender) throw new HttpError(409, "no_sender_assigned");
+    if (!version) {
+      await logFailure({ category, template, version: versionNumber, to: toList, errorCode: "email_version_not_found" });
+      throw new HttpError(404, "email_version_not_found");
+    }
 
-    const { to, data } = envelope.parse(req.body);
+    const base = {
+      category,
+      template,
+      version: versionNumber,
+      to: toList,
+      senderEmail: version.sender?.email ?? null,
+      versionId: version.id,
+    };
+
+    if (version.status !== "PUBLISHED") {
+      await logFailure({ ...base, subject: version.subject, errorCode: "version_not_published" });
+      throw new HttpError(409, "version_not_published", { hint: "Publish this version before sending." });
+    }
+    if (!version.sender) {
+      await logFailure({ ...base, subject: version.subject, errorCode: "no_sender_assigned" });
+      throw new HttpError(409, "no_sender_assigned");
+    }
+
+    let to: string | string[];
+    let data: Record<string, unknown>;
+    try {
+      const parsed = envelope.parse(req.body);
+      to = parsed.to;
+      data = parsed.data;
+    } catch (e) {
+      const detail = e instanceof z.ZodError ? e.issues : e;
+      await logFailure({ ...base, subject: version.subject, errorCode: "validation_error", errorDetail: detail });
+      throw e;
+    }
+    const recipients = Array.isArray(to) ? to : [to];
 
     // Validate the payload params against the version's registered schema.
-    const paramsSchema = jsonSchemaToZod(version.jsonSchema as object);
-    const params = paramsSchema.parse(data);
+    let params: unknown;
+    try {
+      params = jsonSchemaToZod(version.jsonSchema as object).parse(data);
+    } catch (e) {
+      const detail = e instanceof z.ZodError ? e.issues : e;
+      await logFailure({ ...base, to: recipients, subject: version.subject, errorCode: "validation_error", errorDetail: detail });
+      throw e;
+    }
 
     const rendered = render(version.mjml, version.subject, params as Record<string, unknown>);
-    if (rendered.errors.length)
+    if (rendered.errors.length) {
+      await logFailure({ ...base, to: recipients, subject: version.subject, errorCode: "render_error", errorDetail: rendered.errors });
       throw new HttpError(500, "render_error", { errors: rendered.errors });
+    }
 
-    const result = await sendEmail({
-      from: `${version.sender.name} <${version.sender.email}>`,
-      to: Array.isArray(to) ? to : [to],
-      subject: rendered.subject,
-      html: rendered.html,
-      region: version.sender.region,
-    });
+    let result: { messageId: string; dryRun: boolean };
+    try {
+      result = await sendEmail({
+        from: `${version.sender.name} <${version.sender.email}>`,
+        to: recipients,
+        subject: rendered.subject,
+        html: rendered.html,
+        region: version.sender.region,
+      });
+    } catch (e) {
+      await logFailure({
+        ...base,
+        to: recipients,
+        subject: rendered.subject,
+        errorCode: "ses_send_failed",
+        errorDetail: e instanceof Error ? e.message : String(e),
+      });
+      throw new HttpError(502, "ses_send_failed", {
+        message: e instanceof Error ? e.message : String(e),
+      });
+    }
+
+    await prisma.emailLog.create({
+      data: {
+        status: "SENT",
+        to: recipients,
+        subject: rendered.subject,
+        category,
+        template,
+        version: versionNumber,
+        senderEmail: version.sender.email,
+        versionId: version.id,
+        messageId: result.messageId,
+        dryRun: result.dryRun,
+      },
+    }).catch((e) => console.error("failed to write email log", e));
 
     res.json({
       ok: true,

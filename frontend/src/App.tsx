@@ -4,6 +4,7 @@ import TemplatesPage from "./pages/TemplatesPage";
 import TemplateDetailPage from "./pages/TemplateDetailPage";
 import VersionEditorPage from "./pages/VersionEditorPage";
 import SendersPage from "./pages/SendersPage";
+import LogsPage from "./pages/LogsPage";
 
 function Nav() {
   const cls = ({ isActive }: { isActive: boolean }) =>
@@ -22,6 +23,9 @@ function Nav() {
         <NavLink to="/senders" className={cls}>
           Senders
         </NavLink>
+        <NavLink to="/logs" className={cls}>
+          Logs
+        </NavLink>
       </div>
     </header>
   );
@@ -38,6 +42,7 @@ export default function App() {
           <Route path="/templates/:templateId" element={<TemplateDetailPage />} />
           <Route path="/versions/:versionId" element={<VersionEditorPage />} />
           <Route path="/senders" element={<SendersPage />} />
+          <Route path="/logs" element={<LogsPage />} />
         </Routes>
       </main>
     </div>

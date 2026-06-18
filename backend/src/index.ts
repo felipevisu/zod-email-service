@@ -5,6 +5,7 @@ import { senders } from "./routes/senders.js";
 import { categories } from "./routes/categories.js";
 import { templates } from "./routes/templates.js";
 import { versions } from "./routes/versions.js";
+import { logs } from "./routes/logs.js";
 import { send } from "./routes/send.js";
 
 const app = express();
@@ -17,6 +18,7 @@ app.get("/health", (_req, res) => res.json({ ok: true }));
 app.use("/api/senders", senders);
 app.use("/api/categories", categories);
 app.use("/api/templates", templates);
+app.use("/api/logs", logs);
 app.use("/api", versions); // /api/templates/:id/versions, /api/versions/:id, ...
 
 // Public send API (consumed by other services): /:category/:template/:version
