@@ -3,13 +3,28 @@ const BASE = "/api";
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(BASE + path, {
     headers: { "Content-Type": "application/json" },
+    credentials: "include",
     ...init,
   });
+  // A 401 on anything other than the login probe means the session is gone;
+  // let the auth layer drop back to the login screen.
+  if (res.status === 401 && !path.startsWith("/auth/login")) {
+    window.dispatchEvent(new Event("auth:unauthorized"));
+  }
   if (res.status === 204) return undefined as T;
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new ApiError(res.status, body);
   return body as T;
 }
+
+export type AuthUser = { username: string };
+
+export const auth = {
+  me: () => req<AuthUser>("/auth/me"),
+  login: (username: string, password: string) =>
+    req<AuthUser>("/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }),
+  logout: () => req<void>("/auth/logout", { method: "POST" }),
+};
 
 export class ApiError extends Error {
   constructor(public status: number, public body: any) {
@@ -70,3 +85,34 @@ export type EmailLog = {
 };
 export type LogsResponse = { items: EmailLog[]; total: number; take: number; skip: number };
 export type LogStats = { sent: number; failed: number; total: number };
+
+export type ApiKeyScope = "ALL" | "SELECTED";
+export type ApiKey = {
+  id: string;
+  name: string;
+  prefix: string;
+  hint: string;
+  scope: ApiKeyScope;
+  expiresAt: string | null;
+  revokedAt: string | null;
+  lastUsedAt: string | null;
+  createdBy: string | null;
+  createdAt: string;
+  templates: { template: { id: string; slug: string; name: string } }[];
+};
+// Returned only by create: includes the raw key, shown to the user once.
+export type CreatedApiKey = ApiKey & { key: string };
+
+export type CreateApiKeyInput = {
+  name: string;
+  scope: ApiKeyScope;
+  templateIds?: string[];
+  expiresAt?: string; // ISO; omit for permanent
+};
+
+export const apiKeys = {
+  list: () => api.get<ApiKey[]>("/api-keys"),
+  create: (body: CreateApiKeyInput) => api.post<CreatedApiKey>("/api-keys", body),
+  revoke: (id: string) => api.post<ApiKey>(`/api-keys/${id}/revoke`),
+  remove: (id: string) => api.del(`/api-keys/${id}`),
+};

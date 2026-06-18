@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { h, HttpError } from "../lib/http.js";
+import { requireApiKey } from "../lib/apiKey.js";
 import { jsonSchemaToZod } from "../lib/jsonSchemaToZod.js";
 import { render } from "../services/render.js";
 import { sendEmail } from "../services/ses.js";
@@ -29,6 +30,8 @@ async function logFailure(args: {
   subject?: string;
   senderEmail?: string | null;
   versionId?: string | null;
+  apiKeyId?: string | null;
+  apiKeyName?: string | null;
   errorCode: string;
   errorDetail?: unknown;
 }) {
@@ -43,6 +46,8 @@ async function logFailure(args: {
         version: args.version,
         senderEmail: args.senderEmail ?? null,
         versionId: args.versionId ?? null,
+        apiKeyId: args.apiKeyId ?? null,
+        apiKeyName: args.apiKeyName ?? null,
         errorCode: args.errorCode,
         errorDetail:
           args.errorDetail == null
@@ -67,9 +72,11 @@ async function logFailure(args: {
  */
 send.post(
   "/:category/:template/:version",
+  requireApiKey,
   h(async (req, res) => {
     const { category, template } = req.params;
     const versionNumber = parseVersionParam(req.params.version);
+    const apiKey = (req as typeof req & { apiKey?: { id: string; name: string; scope: string } }).apiKey!;
 
     // Resolve recipients early so failures can still be logged with a target.
     const toList = (() => {
@@ -87,8 +94,10 @@ send.post(
       include: { sender: true },
     });
 
+    const keyAudit = { apiKeyId: apiKey.id, apiKeyName: apiKey.name };
+
     if (!version) {
-      await logFailure({ category, template, version: versionNumber, to: toList, errorCode: "email_version_not_found" });
+      await logFailure({ category, template, version: versionNumber, to: toList, ...keyAudit, errorCode: "email_version_not_found" });
       throw new HttpError(404, "email_version_not_found");
     }
 
@@ -99,7 +108,21 @@ send.post(
       to: toList,
       senderEmail: version.sender?.email ?? null,
       versionId: version.id,
+      ...keyAudit,
     };
+
+    // Per-template scope: SELECTED keys may only send their granted templates.
+    if (apiKey.scope === "SELECTED") {
+      const grant = await prisma.apiKeyTemplate.findUnique({
+        where: { apiKeyId_templateId: { apiKeyId: apiKey.id, templateId: version.templateId } },
+      });
+      if (!grant) {
+        await logFailure({ ...base, subject: version.subject, errorCode: "template_not_authorized" });
+        throw new HttpError(403, "template_not_authorized", {
+          hint: "This API key is not scoped to send this template.",
+        });
+      }
+    }
 
     if (version.status !== "PUBLISHED") {
       await logFailure({ ...base, subject: version.subject, errorCode: "version_not_published" });
@@ -171,6 +194,8 @@ send.post(
         version: versionNumber,
         senderEmail: version.sender.email,
         versionId: version.id,
+        apiKeyId: apiKey.id,
+        apiKeyName: apiKey.name,
         messageId: result.messageId,
         dryRun: result.dryRun,
       },

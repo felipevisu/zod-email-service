@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import request from "supertest";
+import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
+import { authedAgent } from "../helpers.js";
 
 const { prismaMock } = vi.hoisted(() => {
   const m = () => ({
@@ -20,12 +20,16 @@ vi.mock("../../src/lib/prisma.js", () => ({ prisma: prismaMock }));
 const { createApp } = await import("../../src/app.js");
 const app = createApp();
 
+let agent: Awaited<ReturnType<typeof authedAgent>>;
+beforeAll(async () => {
+  agent = await authedAgent(app);
+});
 beforeEach(() => vi.clearAllMocks());
 
 describe("GET /api/templates", () => {
   it("lists all templates when no filter", async () => {
     prismaMock.template.findMany.mockResolvedValue([{ id: "t1" }]);
-    const res = await request(app).get("/api/templates");
+    const res = await agent.get("/api/templates");
     expect(res.status).toBe(200);
     expect(prismaMock.template.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: undefined })
@@ -34,7 +38,7 @@ describe("GET /api/templates", () => {
 
   it("filters by categoryId", async () => {
     prismaMock.template.findMany.mockResolvedValue([]);
-    await request(app).get("/api/templates").query({ categoryId: "c1" });
+    await agent.get("/api/templates").query({ categoryId: "c1" });
     expect(prismaMock.template.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { categoryId: "c1" } })
     );
@@ -44,14 +48,14 @@ describe("GET /api/templates", () => {
 describe("GET /api/templates/:id", () => {
   it("returns a template with versions", async () => {
     prismaMock.template.findUnique.mockResolvedValue({ id: "t1", versions: [] });
-    const res = await request(app).get("/api/templates/t1");
+    const res = await agent.get("/api/templates/t1");
     expect(res.status).toBe(200);
     expect(res.body.id).toBe("t1");
   });
 
   it("404s when not found", async () => {
     prismaMock.template.findUnique.mockResolvedValue(null);
-    const res = await request(app).get("/api/templates/nope");
+    const res = await agent.get("/api/templates/nope");
     expect(res.status).toBe(404);
     expect(res.body.error).toBe("template_not_found");
   });
@@ -60,7 +64,7 @@ describe("GET /api/templates/:id", () => {
 describe("POST /api/templates", () => {
   it("creates a template", async () => {
     prismaMock.template.create.mockResolvedValue({ id: "t1" });
-    const res = await request(app)
+    const res = await agent
       .post("/api/templates")
       .send({ slug: "welcome", name: "Welcome", categoryId: "c1" });
     expect(res.status).toBe(201);
@@ -70,12 +74,12 @@ describe("POST /api/templates", () => {
   });
 
   it("rejects missing categoryId with 422", async () => {
-    const res = await request(app).post("/api/templates").send({ slug: "welcome", name: "Welcome" });
+    const res = await agent.post("/api/templates").send({ slug: "welcome", name: "Welcome" });
     expect(res.status).toBe(422);
   });
 
   it("rejects an invalid slug with 422", async () => {
-    const res = await request(app)
+    const res = await agent
       .post("/api/templates")
       .send({ slug: "Bad_Slug", name: "x", categoryId: "c1" });
     expect(res.status).toBe(422);
@@ -85,7 +89,7 @@ describe("POST /api/templates", () => {
 describe("PUT /api/templates/:id", () => {
   it("updates partially", async () => {
     prismaMock.template.update.mockResolvedValue({ id: "t1" });
-    const res = await request(app).put("/api/templates/t1").send({ name: "Renamed" });
+    const res = await agent.put("/api/templates/t1").send({ name: "Renamed" });
     expect(res.status).toBe(200);
     expect(prismaMock.template.update).toHaveBeenCalledWith({
       where: { id: "t1" },
@@ -97,7 +101,7 @@ describe("PUT /api/templates/:id", () => {
 describe("DELETE /api/templates/:id", () => {
   it("deletes and returns 204", async () => {
     prismaMock.template.delete.mockResolvedValue({});
-    const res = await request(app).delete("/api/templates/t1");
+    const res = await agent.delete("/api/templates/t1");
     expect(res.status).toBe(204);
   });
 });

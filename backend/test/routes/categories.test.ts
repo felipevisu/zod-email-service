@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import request from "supertest";
+import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
+import { authedAgent } from "../helpers.js";
 
 const { prismaMock } = vi.hoisted(() => {
   const m = () => ({
@@ -20,12 +20,16 @@ vi.mock("../../src/lib/prisma.js", () => ({ prisma: prismaMock }));
 const { createApp } = await import("../../src/app.js");
 const app = createApp();
 
+let agent: Awaited<ReturnType<typeof authedAgent>>;
+beforeAll(async () => {
+  agent = await authedAgent(app);
+});
 beforeEach(() => vi.clearAllMocks());
 
 describe("GET /api/categories", () => {
   it("lists categories with template counts, slug-ordered", async () => {
     prismaMock.category.findMany.mockResolvedValue([{ id: "c1", slug: "accounts" }]);
-    const res = await request(app).get("/api/categories");
+    const res = await agent.get("/api/categories");
     expect(res.status).toBe(200);
     expect(prismaMock.category.findMany).toHaveBeenCalledWith({
       orderBy: { slug: "asc" },
@@ -37,7 +41,7 @@ describe("GET /api/categories", () => {
 describe("POST /api/categories", () => {
   it("creates a category", async () => {
     prismaMock.category.create.mockResolvedValue({ id: "c1" });
-    const res = await request(app).post("/api/categories").send({ slug: "accounts", name: "Accounts" });
+    const res = await agent.post("/api/categories").send({ slug: "accounts", name: "Accounts" });
     expect(res.status).toBe(201);
     expect(prismaMock.category.create).toHaveBeenCalledWith({
       data: { slug: "accounts", name: "Accounts" },
@@ -45,7 +49,7 @@ describe("POST /api/categories", () => {
   });
 
   it("rejects an invalid slug (uppercase / spaces) with 422", async () => {
-    const res = await request(app).post("/api/categories").send({ slug: "Bad Slug", name: "x" });
+    const res = await agent.post("/api/categories").send({ slug: "Bad Slug", name: "x" });
     expect(res.status).toBe(422);
     expect(prismaMock.category.create).not.toHaveBeenCalled();
   });
@@ -54,7 +58,7 @@ describe("POST /api/categories", () => {
 describe("PUT /api/categories/:id", () => {
   it("updates partially", async () => {
     prismaMock.category.update.mockResolvedValue({ id: "c1" });
-    const res = await request(app).put("/api/categories/c1").send({ name: "Renamed" });
+    const res = await agent.put("/api/categories/c1").send({ name: "Renamed" });
     expect(res.status).toBe(200);
     expect(prismaMock.category.update).toHaveBeenCalledWith({
       where: { id: "c1" },
@@ -66,7 +70,7 @@ describe("PUT /api/categories/:id", () => {
 describe("DELETE /api/categories/:id", () => {
   it("deletes and returns 204", async () => {
     prismaMock.category.delete.mockResolvedValue({});
-    const res = await request(app).delete("/api/categories/c1");
+    const res = await agent.delete("/api/categories/c1");
     expect(res.status).toBe(204);
     expect(prismaMock.category.delete).toHaveBeenCalledWith({ where: { id: "c1" } });
   });
