@@ -14,6 +14,16 @@ immutable — to change one you clone it into a new version. Other services send
 mail by hitting `POST /:category/:template/:version`, e.g.
 `POST /accounts/password-recovery/v1`.
 
+## Screenshots
+
+| Templates | Emails |
+|-----------|--------|
+| ![Template editor](screenshots/template.png) | ![Send emails](screenshots/emails.png) |
+
+| Logs | API keys |
+|------|----------|
+| ![Email logs](screenshots/logs.png) | ![API keys](screenshots/api-keys.png) |
+
 ## Stack
 - **Backend**: TypeScript, Express, Prisma (PostgreSQL), Zod, MJML + Handlebars, AWS SES SDK
 - **Frontend**: TypeScript, React, Vite, Tailwind, TanStack Query
