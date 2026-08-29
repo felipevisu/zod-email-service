@@ -10,7 +10,6 @@ const versionBody = z.object({
   subject: z.string().default(""),
   mjml: z.string().default(""),
   jsonSchema: z.record(z.any()).default({}),
-  senderId: z.string().nullable().optional(),
 });
 
 // Canonical JSON (sorted keys) so key order doesn't read as a schema change.
@@ -30,7 +29,7 @@ function schemaEqual(a: unknown, b: unknown): boolean {
 async function loadVersion(id: string) {
   const v = await prisma.version.findUnique({
     where: { id },
-    include: { sender: true, template: { include: { category: true } } },
+    include: { template: { include: { category: { include: { sender: true } } } } },
   });
   if (!v) throw new HttpError(404, "version_not_found");
   return v;
@@ -46,10 +45,10 @@ versions.post(
     if (!template) throw new HttpError(404, "template_not_found");
 
     const fromId = req.query.from as string | undefined;
-    let base = { subject: "", mjml: "", jsonSchema: {} as unknown, senderId: null as string | null };
+    let base = { subject: "", mjml: "", jsonSchema: {} as unknown };
     if (fromId) {
       const src = await prisma.version.findUnique({ where: { id: fromId } });
-      if (src) base = { subject: src.subject, mjml: src.mjml, jsonSchema: src.jsonSchema as unknown, senderId: src.senderId };
+      if (src) base = { subject: src.subject, mjml: src.mjml, jsonSchema: src.jsonSchema as unknown };
     }
     const body = versionBody.partial().parse(req.body);
 
@@ -66,9 +65,7 @@ versions.post(
         subject: body.subject ?? base.subject,
         mjml: body.mjml ?? base.mjml,
         jsonSchema: (body.jsonSchema ?? base.jsonSchema) as object,
-        senderId: body.senderId !== undefined ? body.senderId : base.senderId,
       },
-      include: { sender: true },
     });
     res.status(201).json(created);
   })
@@ -100,9 +97,7 @@ versions.put(
         ...(body.subject !== undefined && { subject: body.subject }),
         ...(body.mjml !== undefined && { mjml: body.mjml }),
         ...(body.jsonSchema !== undefined && { jsonSchema: body.jsonSchema as object }),
-        ...(body.senderId !== undefined && { senderId: body.senderId }),
       },
-      include: { sender: true },
     });
     res.json(updated);
   })
@@ -112,12 +107,10 @@ versions.post(
   "/versions/:id/publish",
   h(async (req, res) => {
     const v = await loadVersion(req.params.id);
-    if (!v.senderId) throw new HttpError(400, "sender_required_to_publish");
     res.json(
       await prisma.version.update({
         where: { id: v.id },
         data: { status: "PUBLISHED" },
-        include: { sender: true },
       })
     );
   })

@@ -38,7 +38,7 @@ async function main() {
   const category = await prisma.category.upsert({
     where: { slug: "accounts" },
     update: {},
-    create: { slug: "accounts", name: "Accounts" },
+    create: { slug: "accounts", name: "Accounts", senderId: sender.id },
   });
 
   const template = await prisma.template.upsert({
@@ -58,7 +58,6 @@ async function main() {
         subject: "Reset your password, {{name}}",
         mjml: MJML,
         jsonSchema: SCHEMA,
-        senderId: sender.id,
         status: "PUBLISHED",
       },
     });

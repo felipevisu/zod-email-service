@@ -49,7 +49,15 @@ export type Sender = {
   region: string;
   hasCredentials: boolean;
 };
-export type Category = { id: string; slug: string; name: string; _count?: { templates: number } };
+export type Category = {
+  id: string;
+  slug: string;
+  name: string;
+  senderId: string;
+  sender?: Sender;
+  _count?: { templates: number };
+  templates?: Template[];
+};
 export type Template = {
   id: string;
   slug: string;
@@ -59,10 +67,6 @@ export type Template = {
   _count?: { versions: number };
   versions?: Version[];
 };
-// Shape returned by GET /templates for the sender-grouped home page.
-export type TemplateWithSenders = Template & {
-  versions: { version: number; status: VersionStatus; sender: Pick<Sender, "id" | "name" | "email"> | null }[];
-};
 export type VersionStatus = "DRAFT" | "PUBLISHED";
 export type Version = {
   id: string;
@@ -71,8 +75,6 @@ export type Version = {
   subject: string;
   mjml: string;
   jsonSchema: any;
-  senderId: string | null;
-  sender?: Sender | null;
   status: VersionStatus;
   template?: Template;
 };

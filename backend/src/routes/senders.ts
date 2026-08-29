@@ -88,7 +88,12 @@ senders.put(
 senders.delete(
   "/:id",
   h(async (req, res) => {
-    await prisma.sender.delete({ where: { id: req.params.id } }).catch(() => {
+    await prisma.sender.delete({ where: { id: req.params.id } }).catch((e: { code?: string }) => {
+      if (e?.code === "P2003") {
+        throw new HttpError(409, "sender_has_categories", {
+          hint: "Move or delete this sender's categories first.",
+        });
+      }
       throw new HttpError(404, "sender_not_found");
     });
     res.status(204).end();

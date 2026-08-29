@@ -126,7 +126,7 @@ async function main() {
   const category = await prisma.category.upsert({
     where: { slug: "admin" },
     update: {},
-    create: { slug: "admin", name: "Admin" },
+    create: { slug: "admin", name: "Admin", senderId: sender.id },
   });
 
   for (const t of TEMPLATES) {
@@ -153,7 +153,6 @@ async function main() {
           subject: t.subject,
           mjml: t.mjml,
           jsonSchema: t.jsonSchema,
-          senderId: sender.id,
           status: "PUBLISHED",
         },
       });

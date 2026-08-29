@@ -10,15 +10,26 @@ const slug = z.string().regex(/^[a-z0-9-]+$/, "lowercase letters, numbers, dashe
 const categoryInput = z.object({
   slug,
   name: z.string().min(1),
+  senderId: z.string().min(1),
 });
 
+// List categories, optionally scoped to a sender. Includes each category's
+// templates so the sender detail page renders from one request.
 categories.get(
   "/",
-  h(async (_req, res) => {
+  h(async (req, res) => {
+    const senderId = req.query.senderId as string | undefined;
     res.json(
       await prisma.category.findMany({
+        where: senderId ? { senderId } : undefined,
         orderBy: { slug: "asc" },
-        include: { _count: { select: { templates: true } } },
+        include: {
+          _count: { select: { templates: true } },
+          templates: {
+            orderBy: { slug: "asc" },
+            include: { _count: { select: { versions: true } } },
+          },
+        },
       })
     );
   })

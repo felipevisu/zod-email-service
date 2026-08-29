@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, RenderResult, Sender, Version } from "../lib/api";
+import { api, RenderResult, Version } from "../lib/api";
 import { Badge, Button, Card, Field, Input } from "../components/ui";
 import {
   SchemaBuilder,
@@ -29,19 +29,13 @@ export default function VersionEditorPage() {
     queryKey: ["version", versionId],
     queryFn: () => api.get<Version>(`/versions/${versionId}`),
   });
-  const { data: senders = [] } = useQuery({
-    queryKey: ["senders"],
-    queryFn: () => api.get<Sender[]>("/senders"),
-  });
-
   const [subject, setSubject] = useState("");
   const [mjml, setMjml] = useState("");
-  const [senderId, setSenderId] = useState<string | null>(null);
   const [fields, setFields] = useState<SchemaField[]>([]);
   const [sampleData, setSampleData] = useState("{}");
   const [preview, setPreview] = useState<RenderResult | null>(null);
 
-  // Subject/MJML/sender stay editable after publish; only the schema is frozen.
+  // Subject/MJML stay editable after publish; only the schema is frozen.
   const schemaLocked = version?.status === "PUBLISHED";
   const isPublished = version?.status === "PUBLISHED";
 
@@ -49,7 +43,6 @@ export default function VersionEditorPage() {
     if (!version) return;
     setSubject(version.subject);
     setMjml(version.mjml);
-    setSenderId(version.senderId);
     const f = schemaToFields(version.jsonSchema);
     setFields(f);
     const sample: Record<string, unknown> = {};
@@ -64,7 +57,6 @@ export default function VersionEditorPage() {
       api.put<Version>(`/versions/${versionId}`, {
         subject,
         mjml,
-        senderId,
         // Omit the schema when frozen: the builder is lossy (drops min/max etc.),
         // so resending a rebuilt schema would falsely read as a schema change.
         ...(schemaLocked ? {} : { jsonSchema }),
@@ -109,7 +101,7 @@ export default function VersionEditorPage() {
             {save.isPending ? "Saving…" : isPublished ? "Save changes" : "Save draft"}
           </Button>
           {!isPublished && (
-            <Button onClick={() => publish.mutate()} disabled={publish.isPending || !senderId}>
+            <Button onClick={() => publish.mutate()} disabled={publish.isPending}>
               Publish
             </Button>
           )}
@@ -118,7 +110,7 @@ export default function VersionEditorPage() {
 
       {isPublished && (
         <Card className="p-3 bg-green-50 border-green-200 text-sm text-green-800">
-          Published. Sender, subject and MJML are editable; the schema is frozen — clone into
+          Published. Subject and MJML are editable; the schema is frozen — clone into
           a new version to change parameters.
         </Card>
       )}
@@ -129,20 +121,12 @@ export default function VersionEditorPage() {
         {/* Left: definition */}
         <div className="space-y-5">
           <Card className="p-4 space-y-3">
-            <Field label="Sender (AWS SES identity)">
-              <select
-                className="w-full border rounded-md px-3 py-2 text-sm disabled:bg-slate-100"
-                value={senderId ?? ""}
-                onChange={(e) => setSenderId(e.target.value || null)}
-              >
-                <option value="">— choose sender —</option>
-                {senders.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name} ({s.email})
-                  </option>
-                ))}
-              </select>
-            </Field>
+            {version.template?.category?.sender && (
+              <p className="text-xs text-slate-500">
+                Sends via <span className="font-medium">{version.template.category.sender.email}</span>{" "}
+                (from category {version.template.category.name})
+              </p>
+            )}
             <Field label="Subject (Handlebars)">
               <Input
                 value={subject}

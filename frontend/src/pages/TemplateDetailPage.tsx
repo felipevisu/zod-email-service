@@ -26,6 +26,19 @@ export default function TemplateDetailPage() {
     },
   });
 
+  const deleteVersion = useMutation({
+    mutationFn: (id: string) => api.del(`/versions/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["template", templateId] }),
+  });
+
+  function confirmDelete(v: Version) {
+    const warning =
+      v.status === "PUBLISHED"
+        ? `Delete PUBLISHED version v${v.version}? Services calling POST ${base}/v${v.version} will start getting 404s. This cannot be undone.`
+        : `Delete draft version v${v.version}? This cannot be undone.`;
+    if (window.confirm(warning)) deleteVersion.mutate(v.id);
+  }
+
   if (isLoading || !template) return <p className="text-slate-400">Loading…</p>;
 
   const base = `/${template.category?.slug}/${template.slug}`;
@@ -33,7 +46,7 @@ export default function TemplateDetailPage() {
   return (
     <div className="space-y-6">
       <div>
-        <Link to={`/categories/${template.categoryId}`} className="text-sm text-indigo-600">
+        <Link to={`/senders/${template.category?.senderId}`} className="text-sm text-indigo-600">
           ← {template.category?.name}
         </Link>
         <h1 className="text-2xl font-bold mt-1">{template.name}</h1>
@@ -54,7 +67,6 @@ export default function TemplateDetailPage() {
               <div className="flex items-center gap-2">
                 <span className="font-mono font-semibold">v{v.version}</span>
                 <Badge color={v.status === "PUBLISHED" ? "green" : "amber"}>{v.status}</Badge>
-                {v.sender && <span className="text-xs text-slate-400">via {v.sender.email}</span>}
               </div>
               <div className="text-sm text-slate-500 mt-1">{v.subject || <em>no subject</em>}</div>
               {v.status === "PUBLISHED" && (
@@ -63,9 +75,14 @@ export default function TemplateDetailPage() {
                 </code>
               )}
             </div>
-            <Link to={`/versions/${v.id}`}>
-              <Button variant="ghost">Edit</Button>
-            </Link>
+            <div className="flex gap-2">
+              <Link to={`/versions/${v.id}`}>
+                <Button variant="ghost">Edit</Button>
+              </Link>
+              <Button variant="danger" onClick={() => confirmDelete(v)} disabled={deleteVersion.isPending}>
+                Delete
+              </Button>
+            </div>
           </Card>
         ))}
         {(template.versions ?? []).length === 0 && (

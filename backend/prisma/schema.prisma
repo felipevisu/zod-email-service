@@ -21,14 +21,17 @@ model Sender {
   region      String         @default("us-east-1") // SES only
   credentials String? // AES-256-GCM encrypted JSON, see lib/crypto.ts
   createdAt   DateTime       @default(now())
-  versions    Version[]
+  categories  Category[]
 }
 
-// Top-level group, e.g. "accounts". Maps to the first path segment.
+// Group of emails owned by one sender, e.g. "accounts". Maps to the first
+// path segment; slug stays globally unique so the send URL is unambiguous.
 model Category {
   id        String     @id @default(cuid())
   slug      String     @unique
   name      String
+  senderId  String
+  sender    Sender     @relation(fields: [senderId], references: [id], onDelete: Restrict)
   createdAt DateTime   @default(now())
   templates Template[]
 }
@@ -122,8 +125,6 @@ model Version {
   subject    String        @default("")
   mjml       String        @default("") // MJML source with Handlebars vars
   jsonSchema Json          @default("{}") // JSON Schema describing render params
-  senderId   String?
-  sender     Sender?       @relation(fields: [senderId], references: [id], onDelete: SetNull)
   status     VersionStatus @default(DRAFT)
   createdAt  DateTime      @default(now())
   updatedAt  DateTime      @updatedAt

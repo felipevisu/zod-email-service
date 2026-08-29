@@ -23,18 +23,8 @@ templates.get(
         where: categoryId ? { categoryId } : undefined,
         orderBy: { slug: "asc" },
         include: {
-          category: true,
+          category: { include: { sender: { select: { id: true, name: true, email: true } } } },
           _count: { select: { versions: true } },
-          // Newest-first versions with their sender, so the UI can group
-          // templates under the published (or latest) version's sender.
-          versions: {
-            orderBy: { version: "desc" },
-            select: {
-              version: true,
-              status: true,
-              sender: { select: { id: true, name: true, email: true } },
-            },
-          },
         },
       })
     );
@@ -50,7 +40,6 @@ templates.get(
         category: true,
         versions: {
           orderBy: { version: "desc" },
-          include: { sender: true },
         },
       },
     });

@@ -1,9 +1,8 @@
 import { Link, NavLink, Route, Routes } from "react-router-dom";
-import CategoriesPage from "./pages/CategoriesPage";
-import TemplatesPage from "./pages/TemplatesPage";
 import TemplateDetailPage from "./pages/TemplateDetailPage";
 import VersionEditorPage from "./pages/VersionEditorPage";
 import SendersPage from "./pages/SendersPage";
+import SenderDetailPage from "./pages/SenderDetailPage";
 import LogsPage from "./pages/LogsPage";
 import ApiKeysPage from "./pages/ApiKeysPage";
 import LoginPage from "./pages/LoginPage";
@@ -22,9 +21,6 @@ function Nav() {
           ✉ Email Service
         </Link>
         <NavLink to="/" end className={cls}>
-          Emails
-        </NavLink>
-        <NavLink to="/senders" className={cls}>
           Senders
         </NavLink>
         <NavLink to="/logs" className={cls}>
@@ -65,11 +61,10 @@ export default function App() {
       <Nav />
       <main className="mx-auto max-w-6xl px-4 py-6">
         <Routes>
-          <Route path="/" element={<CategoriesPage />} />
-          <Route path="/categories/:categoryId" element={<TemplatesPage />} />
+          <Route path="/" element={<SendersPage />} />
+          <Route path="/senders/:senderId" element={<SenderDetailPage />} />
           <Route path="/templates/:templateId" element={<TemplateDetailPage />} />
           <Route path="/versions/:versionId" element={<VersionEditorPage />} />
-          <Route path="/senders" element={<SendersPage />} />
           <Route path="/logs" element={<LogsPage />} />
           <Route path="/api-keys" element={<ApiKeysPage />} />
         </Routes>

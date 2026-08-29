@@ -27,25 +27,38 @@ beforeAll(async () => {
 beforeEach(() => vi.clearAllMocks());
 
 describe("GET /api/categories", () => {
-  it("lists categories with template counts, slug-ordered", async () => {
+  it("lists categories with templates, slug-ordered", async () => {
     prismaMock.category.findMany.mockResolvedValue([{ id: "c1", slug: "accounts" }]);
     const res = await agent.get("/api/categories");
     expect(res.status).toBe(200);
-    expect(prismaMock.category.findMany).toHaveBeenCalledWith({
-      orderBy: { slug: "asc" },
-      include: { _count: { select: { templates: true } } },
-    });
+    expect(prismaMock.category.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: undefined, orderBy: { slug: "asc" } })
+    );
+  });
+
+  it("filters by senderId", async () => {
+    prismaMock.category.findMany.mockResolvedValue([]);
+    await agent.get("/api/categories").query({ senderId: "s1" });
+    expect(prismaMock.category.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { senderId: "s1" } })
+    );
   });
 });
 
 describe("POST /api/categories", () => {
-  it("creates a category", async () => {
+  it("creates a category owned by a sender", async () => {
     prismaMock.category.create.mockResolvedValue({ id: "c1" });
-    const res = await agent.post("/api/categories").send({ slug: "accounts", name: "Accounts" });
+    const res = await agent.post("/api/categories").send({ slug: "accounts", name: "Accounts", senderId: "s1" });
     expect(res.status).toBe(201);
     expect(prismaMock.category.create).toHaveBeenCalledWith({
-      data: { slug: "accounts", name: "Accounts" },
+      data: { slug: "accounts", name: "Accounts", senderId: "s1" },
     });
+  });
+
+  it("rejects a category without senderId with 422", async () => {
+    const res = await agent.post("/api/categories").send({ slug: "accounts", name: "Accounts" });
+    expect(res.status).toBe(422);
+    expect(prismaMock.category.create).not.toHaveBeenCalled();
   });
 
   it("rejects an invalid slug (uppercase / spaces) with 422", async () => {

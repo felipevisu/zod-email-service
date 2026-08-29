@@ -60,7 +60,12 @@ const send = (path: string) => request(app).post(path).set("x-api-key", KEY.raw)
 const GOOD_MJML =
   "<mjml><mj-body><mj-section><mj-column><mj-text>Hi {{name}}</mj-text></mj-column></mj-section></mj-body></mjml>";
 
-function publishedVersion(over: Record<string, unknown> = {}) {
+// The sender now hangs off the template's category.
+function sesSender(over: Record<string, unknown> = {}) {
+  return { name: "Acme", email: "no-reply@acme.com", provider: "SES", region: "us-east-1", credentials: null, ...over };
+}
+
+function publishedVersion(over: Record<string, unknown> = {}, sender: Record<string, unknown> = sesSender()) {
   return {
     id: "v1",
     templateId: "t1",
@@ -68,7 +73,7 @@ function publishedVersion(over: Record<string, unknown> = {}) {
     subject: "Hello {{name}}",
     mjml: GOOD_MJML,
     jsonSchema: {},
-    sender: { name: "Acme", email: "no-reply@acme.com", provider: "SES", region: "us-east-1", credentials: null },
+    template: { category: { sender } },
     ...over,
   };
 }
@@ -207,12 +212,6 @@ describe("POST /:category/:template/:version — lookup failures", () => {
     );
   });
 
-  it("409s and logs when no sender is assigned", async () => {
-    prismaMock.version.findFirst.mockResolvedValue(publishedVersion({ sender: null }));
-    const res = await send("/accounts/welcome/v1").send({ to: "a@b.com" });
-    expect(res.status).toBe(409);
-    expect(res.body.error).toBe("no_sender_assigned");
-  });
 });
 
 describe("POST /:category/:template/:version — validation", () => {
@@ -302,15 +301,13 @@ describe("POST /:category/:template/:version — render + send", () => {
   it("passes stored SES credentials, decrypted, to the SES client", async () => {
     const { seal } = await import("../../src/lib/crypto.js");
     prismaMock.version.findFirst.mockResolvedValue(
-      publishedVersion({
-        sender: {
-          name: "Acme",
-          email: "no-reply@acme.com",
-          provider: "SES",
+      publishedVersion(
+        {},
+        sesSender({
           region: "eu-west-1",
           credentials: seal(JSON.stringify({ accessKeyId: "AKIA1", secretAccessKey: "shh" })),
-        },
-      })
+        })
+      )
     );
     sendEmailMock.mockResolvedValue({ messageId: "m", dryRun: false });
     const res = await send("/accounts/welcome/v1").send({ to: "a@b.com", data: { name: "Q" } });
@@ -326,15 +323,7 @@ describe("POST /:category/:template/:version — render + send", () => {
   it("dispatches RESEND senders to the Resend service with the stored key", async () => {
     const { seal } = await import("../../src/lib/crypto.js");
     prismaMock.version.findFirst.mockResolvedValue(
-      publishedVersion({
-        sender: {
-          name: "Acme",
-          email: "no-reply@acme.com",
-          provider: "RESEND",
-          region: "us-east-1",
-          credentials: seal(JSON.stringify({ apiKey: "re_123" })),
-        },
-      })
+      publishedVersion({}, sesSender({ provider: "RESEND", credentials: seal(JSON.stringify({ apiKey: "re_123" })) }))
     );
     sendViaResendMock.mockResolvedValue({ messageId: "rs-1", dryRun: false });
     const res = await send("/accounts/welcome/v1").send({ to: "a@b.com", data: { name: "Q" } });
@@ -348,9 +337,7 @@ describe("POST /:category/:template/:version — render + send", () => {
 
   it("409s when a RESEND sender has no stored credentials", async () => {
     prismaMock.version.findFirst.mockResolvedValue(
-      publishedVersion({
-        sender: { name: "Acme", email: "no-reply@acme.com", provider: "RESEND", region: "us-east-1", credentials: null },
-      })
+      publishedVersion({}, sesSender({ provider: "RESEND", credentials: null }))
     );
     const res = await send("/accounts/welcome/v1").send({ to: "a@b.com", data: { name: "Q" } });
     expect(res.status).toBe(409);
@@ -365,7 +352,7 @@ describe("POST /:category/:template/:version — render + send", () => {
     expect(prismaMock.version.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { version: 3, template: { slug: "welcome", category: { slug: "accounts" } } },
-        include: { sender: true },
+        include: { template: { include: { category: { include: { sender: true } } } } },
       })
     );
   });

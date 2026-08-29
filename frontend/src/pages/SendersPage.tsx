@@ -1,71 +1,51 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, Sender, SenderProvider } from "../lib/api";
-import { Badge, Button, Card, Field, Input } from "../components/ui";
+import { Badge, Button, Card, Field, Input, Modal } from "../components/ui";
 
-export default function SendersPage() {
+function SenderModal({ sender, onClose }: { sender: Sender | null; onClose: () => void }) {
   const qc = useQueryClient();
-  const { data: senders = [], isLoading } = useQuery({
-    queryKey: ["senders"],
-    queryFn: () => api.get<Sender[]>("/senders"),
-  });
+  const editing = sender != null;
 
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [provider, setProvider] = useState<SenderProvider>("SES");
-  const [region, setRegion] = useState("us-east-1");
+  const [name, setName] = useState(sender?.name ?? "");
+  const [email, setEmail] = useState(sender?.email ?? "");
+  const [provider, setProvider] = useState<SenderProvider>(sender?.provider ?? "SES");
+  const [region, setRegion] = useState(sender?.region ?? "us-east-1");
   const [accessKeyId, setAccessKeyId] = useState("");
   const [secretAccessKey, setSecretAccessKey] = useState("");
   const [apiKey, setApiKey] = useState("");
 
-  const hasCreds = provider === "SES" ? accessKeyId && secretAccessKey : apiKey;
+  const credsFilled = provider === "SES" ? Boolean(accessKeyId && secretAccessKey) : Boolean(apiKey);
 
-  const create = useMutation({
-    mutationFn: () =>
-      api.post<Sender>("/senders", {
-        name,
-        email,
-        provider,
-        region,
-        credentials: !hasCreds
-          ? null
-          : provider === "SES"
-            ? { accessKeyId, secretAccessKey }
-            : { apiKey },
-      }),
+  const save = useMutation({
+    mutationFn: () => {
+      const credentials = credsFilled
+        ? provider === "SES"
+          ? { accessKeyId, secretAccessKey }
+          : { apiKey }
+        : editing
+          ? undefined // untouched -> keep stored credentials
+          : null;
+      const body = { name, email, provider, region, credentials };
+      return editing ? api.put<Sender>(`/senders/${sender.id}`, body) : api.post<Sender>("/senders", body);
+    },
     onSuccess: () => {
-      setName("");
-      setEmail("");
-      setAccessKeyId("");
-      setSecretAccessKey("");
-      setApiKey("");
       qc.invalidateQueries({ queryKey: ["senders"] });
+      onClose();
     },
   });
 
-  const remove = useMutation({
-    mutationFn: (id: string) => api.del(`/senders/${id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["senders"] }),
-  });
-
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Senders</h1>
-      <p className="text-sm text-slate-500">
-        SES senders must be verified identities in their region. Resend senders need a verified
-        domain in Resend. Credentials are stored encrypted; without them, SES falls back to the
-        server&apos;s AWS credential chain.
-      </p>
-
-      <Card className="p-4">
-        <h2 className="font-semibold mb-3 text-sm text-slate-600">Add sender</h2>
-        <div className="flex gap-3 items-end flex-wrap">
+    <Modal title={editing ? "Edit sender" : "Add sender"} onClose={onClose}>
+      <div className="space-y-3">
+        <div className="flex gap-3">
           <div className="w-40">
             <Field label="Name">
               <Input placeholder="Acme" value={name} onChange={(e) => setName(e.target.value)} />
             </Field>
           </div>
-          <div className="flex-1 min-w-[220px]">
+          <div className="flex-1">
             <Field label="Email">
               <Input
                 placeholder="no-reply@acme.com"
@@ -74,10 +54,12 @@ export default function SendersPage() {
               />
             </Field>
           </div>
-          <div className="w-36">
+        </div>
+        <div className="flex gap-3">
+          <div className="w-40">
             <Field label="Provider">
               <select
-                className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm"
+                className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm bg-white"
                 value={provider}
                 onChange={(e) => setProvider(e.target.value as SenderProvider)}
               >
@@ -94,57 +76,84 @@ export default function SendersPage() {
             </div>
           )}
         </div>
-        <div className="flex gap-3 items-end flex-wrap mt-3">
-          {provider === "SES" ? (
-            <>
-              <div className="w-64">
-                <Field label="Access key ID (optional)">
-                  <Input
-                    placeholder="AKIA…"
-                    value={accessKeyId}
-                    onChange={(e) => setAccessKeyId(e.target.value)}
-                  />
-                </Field>
-              </div>
-              <div className="flex-1 min-w-[220px]">
-                <Field label="Secret access key">
-                  <Input
-                    type="password"
-                    value={secretAccessKey}
-                    onChange={(e) => setSecretAccessKey(e.target.value)}
-                  />
-                </Field>
-              </div>
-            </>
-          ) : (
-            <div className="flex-1 min-w-[280px]">
-              <Field label="Resend API key">
-                <Input
-                  type="password"
-                  placeholder="re_…"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                />
+
+        {provider === "SES" ? (
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <Field label="Access key ID">
+                <Input placeholder="AKIA…" value={accessKeyId} onChange={(e) => setAccessKeyId(e.target.value)} />
               </Field>
             </div>
-          )}
+            <div className="flex-1">
+              <Field label="Secret access key">
+                <Input type="password" value={secretAccessKey} onChange={(e) => setSecretAccessKey(e.target.value)} />
+              </Field>
+            </div>
+          </div>
+        ) : (
+          <Field label="Resend API key">
+            <Input type="password" placeholder="re_…" value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
+          </Field>
+        )}
+        <p className="text-xs text-slate-400">
+          {editing
+            ? sender.hasCredentials
+              ? "Leave credential fields blank to keep the stored credentials."
+              : "No credentials stored yet."
+            : "Credentials are stored encrypted. SES senders may leave them blank to use the server's AWS credential chain."}
+        </p>
+
+        {save.isError && <p className="text-red-600 text-sm">{(save.error as Error).message}</p>}
+
+        <div className="flex justify-end gap-2 pt-1">
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
           <Button
-            onClick={() => create.mutate()}
-            disabled={!name || !email || (provider === "RESEND" && !apiKey) || create.isPending}
+            onClick={() => save.mutate()}
+            disabled={!name || !email || (!editing && provider === "RESEND" && !apiKey) || save.isPending}
           >
-            Add
+            {editing ? "Save" : "Add"}
           </Button>
         </div>
-        {create.isError && <p className="text-red-600 text-sm mt-2">{(create.error as Error).message}</p>}
-      </Card>
+      </div>
+    </Modal>
+  );
+}
+
+export default function SendersPage() {
+  const qc = useQueryClient();
+  const { data: senders = [], isLoading } = useQuery({
+    queryKey: ["senders"],
+    queryFn: () => api.get<Sender[]>("/senders"),
+  });
+
+  // null = closed; "new" = create; Sender = edit.
+  const [modal, setModal] = useState<Sender | "new" | null>(null);
+
+  const remove = useMutation({
+    mutationFn: (id: string) => api.del(`/senders/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["senders"] }),
+  });
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">Senders</h1>
+        <Button onClick={() => setModal("new")}>Add sender</Button>
+      </div>
+      <p className="text-sm text-slate-500">
+        SES senders must be verified identities in their region. Resend senders need a verified
+        domain in Resend.
+      </p>
 
       {isLoading ? (
         <p className="text-slate-400">Loading…</p>
       ) : (
         <div className="space-y-2">
           {senders.map((s) => (
-            <Card key={s.id} className="p-3 flex items-center justify-between">
-              <div className="flex items-center gap-2">
+            <Card key={s.id} className="p-3 flex items-center justify-between hover:border-indigo-400 transition">
+              <Link to={`/senders/${s.id}`} className="flex items-center gap-2 flex-1 min-w-0">
                 <Badge color={s.provider === "RESEND" ? "purple" : "blue"}>{s.provider}</Badge>
                 <span className="font-semibold">{s.name}</span>{" "}
                 <span className="text-slate-500">&lt;{s.email}&gt;</span>
@@ -154,14 +163,27 @@ export default function SendersPage() {
                 ) : (
                   <span className="text-xs text-slate-400">no credentials</span>
                 )}
+              </Link>
+              <div className="flex gap-2">
+                <Button variant="ghost" onClick={() => setModal(s)}>
+                  Edit
+                </Button>
+                <Button variant="danger" onClick={() => remove.mutate(s.id)}>
+                  Delete
+                </Button>
               </div>
-              <Button variant="danger" onClick={() => remove.mutate(s.id)}>
-                Delete
-              </Button>
             </Card>
           ))}
           {senders.length === 0 && <p className="text-slate-400">No senders yet.</p>}
         </div>
+      )}
+
+      {modal !== null && (
+        <SenderModal
+          key={modal === "new" ? "new" : modal.id}
+          sender={modal === "new" ? null : modal}
+          onClose={() => setModal(null)}
+        />
       )}
     </div>
   );

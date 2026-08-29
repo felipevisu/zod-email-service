@@ -40,6 +40,31 @@ export function Card({ children, className = "" }: { children: ReactNode; classN
   return <div className={`bg-white border rounded-lg shadow-sm ${className}`}>{children}</div>;
 }
 
+export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-lg shadow-xl w-full max-w-lg p-5"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-semibold text-lg">{title}</h2>
+          <button className="text-slate-400 hover:text-slate-600 text-xl leading-none" onClick={onClose} aria-label="Close">
+            ×
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 export function Badge({ children, color = "slate" }: { children: ReactNode; color?: "slate" | "green" | "amber" | "red" | "blue" | "purple" }) {
   const c = {
     slate: "bg-slate-100 text-slate-600",

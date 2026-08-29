@@ -61,20 +61,18 @@ describe("POST /api/templates/:templateId/versions", () => {
       subject: "Old subject",
       mjml: "<mjml>old</mjml>",
       jsonSchema: { type: "object" },
-      senderId: "s1",
     });
     prismaMock.version.findFirst.mockResolvedValue({ version: 1 });
     prismaMock.version.create.mockResolvedValue({ id: "v2" });
     await agent
       .post("/api/templates/t1/versions")
       .query({ from: "vSrc" })
-      .send({ subject: "New subject" }); // overrides cloned subject, keeps cloned mjml/sender
+      .send({ subject: "New subject" }); // overrides cloned subject, keeps cloned mjml
     expect(prismaMock.version.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           subject: "New subject",
           mjml: "<mjml>old</mjml>",
-          senderId: "s1",
           version: 2,
         }),
       })
@@ -89,7 +87,7 @@ describe("POST /api/templates/:templateId/versions", () => {
     await agent.post("/api/templates/t1/versions").query({ from: "missing" }).send({});
     expect(prismaMock.version.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ version: 1, subject: "", mjml: "", senderId: null }),
+        data: expect.objectContaining({ version: 1, subject: "", mjml: "" }),
       })
     );
   });
@@ -112,19 +110,19 @@ describe("GET /api/versions/:id", () => {
 });
 
 describe("PUT /api/versions/:id", () => {
-  it("updates subject/mjml/sender on a draft", async () => {
+  it("updates subject/mjml on a draft", async () => {
     prismaMock.version.findUnique.mockResolvedValue({
       id: "v1",
       status: "DRAFT",
       jsonSchema: {},
     });
     prismaMock.version.update.mockResolvedValue({ id: "v1", subject: "X" });
-    const res = await agent.put("/api/versions/v1").send({ subject: "X", senderId: "s1" });
+    const res = await agent.put("/api/versions/v1").send({ subject: "X" });
     expect(res.status).toBe(200);
     expect(prismaMock.version.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: "v1" },
-        data: { subject: "X", senderId: "s1" },
+        data: { subject: "X" },
       })
     );
   });
@@ -172,15 +170,8 @@ describe("PUT /api/versions/:id", () => {
 });
 
 describe("POST /api/versions/:id/publish", () => {
-  it("400s when no sender is assigned", async () => {
-    prismaMock.version.findUnique.mockResolvedValue({ id: "v1", senderId: null });
-    const res = await agent.post("/api/versions/v1/publish");
-    expect(res.status).toBe(400);
-    expect(res.body.error).toBe("sender_required_to_publish");
-  });
-
-  it("publishes when a sender is set", async () => {
-    prismaMock.version.findUnique.mockResolvedValue({ id: "v1", senderId: "s1" });
+  it("publishes a draft", async () => {
+    prismaMock.version.findUnique.mockResolvedValue({ id: "v1" });
     prismaMock.version.update.mockResolvedValue({ id: "v1", status: "PUBLISHED" });
     const res = await agent.post("/api/versions/v1/publish");
     expect(res.status).toBe(200);

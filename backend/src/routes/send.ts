@@ -93,7 +93,8 @@ send.post(
         version: versionNumber,
         template: { slug: template, category: { slug: category } },
       },
-      include: { sender: true },
+      // The sender is the owner of the template's category.
+      include: { template: { include: { category: { include: { sender: true } } } } },
     });
 
     const keyAudit = { apiKeyId: apiKey.id, apiKeyName: apiKey.name };
@@ -103,12 +104,14 @@ send.post(
       throw new HttpError(404, "email_version_not_found");
     }
 
+    const versionSender = version.template.category.sender;
+
     const base = {
       category,
       template,
       version: versionNumber,
       to: toList,
-      senderEmail: version.sender?.email ?? null,
+      senderEmail: versionSender.email,
       versionId: version.id,
       ...keyAudit,
     };
@@ -129,10 +132,6 @@ send.post(
     if (version.status !== "PUBLISHED") {
       await logFailure({ ...base, subject: version.subject, errorCode: "version_not_published" });
       throw new HttpError(409, "version_not_published", { hint: "Publish this version before sending." });
-    }
-    if (!version.sender) {
-      await logFailure({ ...base, subject: version.subject, errorCode: "no_sender_assigned" });
-      throw new HttpError(409, "no_sender_assigned");
     }
 
     let to: string | string[];
@@ -164,7 +163,7 @@ send.post(
       throw new HttpError(500, "render_error", { errors: rendered.errors });
     }
 
-    const sender = version.sender;
+    const sender = versionSender;
     const creds = sender.credentials ? (JSON.parse(open(sender.credentials)) as Record<string, string>) : null;
     const mail = {
       from: `${sender.name} <${sender.email}>`,
@@ -209,7 +208,7 @@ send.post(
         category,
         template,
         version: versionNumber,
-        senderEmail: version.sender.email,
+        senderEmail: sender.email,
         versionId: version.id,
         apiKeyId: apiKey.id,
         apiKeyName: apiKey.name,
