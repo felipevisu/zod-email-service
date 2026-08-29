@@ -10,6 +10,7 @@ const query = z.object({
   status: z.enum(["SENT", "FAILED"]).optional(),
   category: z.string().optional(),
   template: z.string().optional(),
+  sender: z.string().optional(), // sender email at send time
   search: z.string().optional(), // matches subject or recipient
   from: z.coerce.date().optional(), // inclusive lower bound on createdAt
   to: z.coerce.date().optional(), // inclusive upper bound on createdAt
@@ -22,6 +23,7 @@ function buildWhere(q: z.infer<typeof query>): Prisma.EmailLogWhereInput {
   if (q.status) where.status = q.status;
   if (q.category) where.category = q.category;
   if (q.template) where.template = q.template;
+  if (q.sender) where.senderEmail = q.sender;
   if (q.search) {
     where.OR = [
       { subject: { contains: q.search, mode: "insensitive" } },

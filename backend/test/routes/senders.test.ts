@@ -27,23 +27,65 @@ beforeAll(async () => {
 beforeEach(() => vi.clearAllMocks());
 
 describe("GET /api/senders", () => {
-  it("lists senders, newest first", async () => {
-    prismaMock.sender.findMany.mockResolvedValue([{ id: "s1", email: "a@b.com" }]);
+  it("lists senders, newest first, masking credentials", async () => {
+    prismaMock.sender.findMany.mockResolvedValue([
+      { id: "s1", email: "a@b.com", credentials: "sealed-blob" },
+      { id: "s2", email: "c@d.com", credentials: null },
+    ]);
     const res = await agent.get("/api/senders");
     expect(res.status).toBe(200);
-    expect(res.body).toEqual([{ id: "s1", email: "a@b.com" }]);
+    expect(res.body).toEqual([
+      { id: "s1", email: "a@b.com", hasCredentials: true },
+      { id: "s2", email: "c@d.com", hasCredentials: false },
+    ]);
     expect(prismaMock.sender.findMany).toHaveBeenCalledWith({ orderBy: { createdAt: "desc" } });
   });
 });
 
 describe("POST /api/senders", () => {
-  it("creates a sender with defaulted region", async () => {
+  it("creates a sender with defaulted provider and region", async () => {
     prismaMock.sender.create.mockResolvedValue({ id: "s1" });
     const res = await agent.post("/api/senders").send({ name: "Acme", email: "a@b.com" });
     expect(res.status).toBe(201);
     expect(prismaMock.sender.create).toHaveBeenCalledWith({
-      data: { name: "Acme", email: "a@b.com", region: "us-east-1" },
+      data: { name: "Acme", email: "a@b.com", provider: "SES", region: "us-east-1", credentials: null },
     });
+  });
+
+  it("encrypts credentials at rest and never echoes them", async () => {
+    prismaMock.sender.create.mockImplementation(async ({ data }: any) => ({ id: "s1", ...data }));
+    const res = await agent.post("/api/senders").send({
+      name: "Acme",
+      email: "a@b.com",
+      provider: "RESEND",
+      credentials: { apiKey: "re_secret" },
+    });
+    expect(res.status).toBe(201);
+    const stored = prismaMock.sender.create.mock.calls[0][0].data.credentials;
+    expect(stored).not.toContain("re_secret"); // encrypted, not plaintext
+    expect(res.body.credentials).toBeUndefined();
+    expect(res.body.hasCredentials).toBe(true);
+  });
+
+  it("rejects RESEND credentials missing apiKey with 422", async () => {
+    const res = await agent.post("/api/senders").send({
+      name: "Acme",
+      email: "a@b.com",
+      provider: "RESEND",
+      credentials: { accessKeyId: "AKIA", secretAccessKey: "s" },
+    });
+    expect(res.status).toBe(422);
+    expect(prismaMock.sender.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects SES credentials missing secretAccessKey with 422", async () => {
+    const res = await agent.post("/api/senders").send({
+      name: "Acme",
+      email: "a@b.com",
+      credentials: { accessKeyId: "AKIA" },
+    });
+    expect(res.status).toBe(422);
+    expect(prismaMock.sender.create).not.toHaveBeenCalled();
   });
 
   it("rejects invalid email with 422", async () => {
@@ -60,13 +102,30 @@ describe("POST /api/senders", () => {
 });
 
 describe("PUT /api/senders/:id", () => {
-  it("updates with a partial body", async () => {
+  it("updates with a partial body, leaving credentials untouched", async () => {
     prismaMock.sender.update.mockResolvedValue({ id: "s1", name: "New" });
     const res = await agent.put("/api/senders/s1").send({ name: "New" });
     expect(res.status).toBe(200);
     expect(prismaMock.sender.update).toHaveBeenCalledWith({
       where: { id: "s1" },
       data: { name: "New" },
+    });
+  });
+
+  it("validates credentials against the stored provider when none is sent", async () => {
+    prismaMock.sender.findUnique.mockResolvedValue({ id: "s1", provider: "RESEND" });
+    const res = await agent.put("/api/senders/s1").send({ credentials: { accessKeyId: "x", secretAccessKey: "y" } });
+    expect(res.status).toBe(422);
+    expect(prismaMock.sender.update).not.toHaveBeenCalled();
+  });
+
+  it("clears credentials with an explicit null", async () => {
+    prismaMock.sender.update.mockResolvedValue({ id: "s1" });
+    const res = await agent.put("/api/senders/s1").send({ credentials: null });
+    expect(res.status).toBe(200);
+    expect(prismaMock.sender.update).toHaveBeenCalledWith({
+      where: { id: "s1" },
+      data: { credentials: null },
     });
   });
 });

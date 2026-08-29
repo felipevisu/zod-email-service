@@ -25,10 +25,14 @@ const { prismaMock } = vi.hoisted(() => {
     },
   };
 });
-const { sendEmailMock } = vi.hoisted(() => ({ sendEmailMock: vi.fn() }));
+const { sendEmailMock, sendViaResendMock } = vi.hoisted(() => ({
+  sendEmailMock: vi.fn(),
+  sendViaResendMock: vi.fn(),
+}));
 
 vi.mock("../../src/lib/prisma.js", () => ({ prisma: prismaMock }));
 vi.mock("../../src/services/ses.js", () => ({ sendEmail: sendEmailMock }));
+vi.mock("../../src/services/resend.js", () => ({ sendViaResend: sendViaResendMock }));
 
 const { createApp } = await import("../../src/app.js");
 const app = createApp();
@@ -64,7 +68,7 @@ function publishedVersion(over: Record<string, unknown> = {}) {
     subject: "Hello {{name}}",
     mjml: GOOD_MJML,
     jsonSchema: {},
-    sender: { name: "Acme", email: "no-reply@acme.com", region: "us-east-1" },
+    sender: { name: "Acme", email: "no-reply@acme.com", provider: "SES", region: "us-east-1", credentials: null },
     ...over,
   };
 }
@@ -248,15 +252,15 @@ describe("POST /:category/:template/:version — render + send", () => {
     expect(sendEmailMock).not.toHaveBeenCalled();
   });
 
-  it("502s and logs when SES fails", async () => {
+  it("502s and logs when the provider fails", async () => {
     prismaMock.version.findFirst.mockResolvedValue(publishedVersion());
     sendEmailMock.mockRejectedValue(new Error("Throttling"));
     const res = await send("/accounts/welcome/v1").send({ to: "a@b.com", data: { name: "Ann" } });
     expect(res.status).toBe(502);
-    expect(res.body.error).toBe("ses_send_failed");
+    expect(res.body.error).toBe("send_failed");
     expect(prismaMock.emailLog.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ errorCode: "ses_send_failed", errorDetail: "Throttling" }),
+        data: expect.objectContaining({ errorCode: "send_failed", errorDetail: "Throttling" }),
       })
     );
   });
@@ -293,6 +297,65 @@ describe("POST /:category/:template/:version — render + send", () => {
     const res = await send("/accounts/welcome/v1").send({ to: ["a@b.com", "c@d.com"], data: { name: "Z" } });
     expect(res.status).toBe(200);
     expect(sendEmailMock).toHaveBeenCalledWith(expect.objectContaining({ to: ["a@b.com", "c@d.com"] }));
+  });
+
+  it("passes stored SES credentials, decrypted, to the SES client", async () => {
+    const { seal } = await import("../../src/lib/crypto.js");
+    prismaMock.version.findFirst.mockResolvedValue(
+      publishedVersion({
+        sender: {
+          name: "Acme",
+          email: "no-reply@acme.com",
+          provider: "SES",
+          region: "eu-west-1",
+          credentials: seal(JSON.stringify({ accessKeyId: "AKIA1", secretAccessKey: "shh" })),
+        },
+      })
+    );
+    sendEmailMock.mockResolvedValue({ messageId: "m", dryRun: false });
+    const res = await send("/accounts/welcome/v1").send({ to: "a@b.com", data: { name: "Q" } });
+    expect(res.status).toBe(200);
+    expect(sendEmailMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        region: "eu-west-1",
+        credentials: { accessKeyId: "AKIA1", secretAccessKey: "shh" },
+      })
+    );
+  });
+
+  it("dispatches RESEND senders to the Resend service with the stored key", async () => {
+    const { seal } = await import("../../src/lib/crypto.js");
+    prismaMock.version.findFirst.mockResolvedValue(
+      publishedVersion({
+        sender: {
+          name: "Acme",
+          email: "no-reply@acme.com",
+          provider: "RESEND",
+          region: "us-east-1",
+          credentials: seal(JSON.stringify({ apiKey: "re_123" })),
+        },
+      })
+    );
+    sendViaResendMock.mockResolvedValue({ messageId: "rs-1", dryRun: false });
+    const res = await send("/accounts/welcome/v1").send({ to: "a@b.com", data: { name: "Q" } });
+    expect(res.status).toBe(200);
+    expect(res.body.messageId).toBe("rs-1");
+    expect(sendViaResendMock).toHaveBeenCalledWith(
+      expect.objectContaining({ from: "Acme <no-reply@acme.com>", apiKey: "re_123" })
+    );
+    expect(sendEmailMock).not.toHaveBeenCalled();
+  });
+
+  it("409s when a RESEND sender has no stored credentials", async () => {
+    prismaMock.version.findFirst.mockResolvedValue(
+      publishedVersion({
+        sender: { name: "Acme", email: "no-reply@acme.com", provider: "RESEND", region: "us-east-1", credentials: null },
+      })
+    );
+    const res = await send("/accounts/welcome/v1").send({ to: "a@b.com", data: { name: "Q" } });
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe("sender_credentials_missing");
+    expect(sendViaResendMock).not.toHaveBeenCalled();
   });
 
   it("resolves the version by category + template slug + version number", async () => {

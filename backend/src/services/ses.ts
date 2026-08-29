@@ -2,14 +2,18 @@ import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
 
 const DRY_RUN = process.env.SES_DRY_RUN === "true";
 
-// One client per region, lazily created.
+export type SesCredentials = { accessKeyId: string; secretAccessKey: string };
+
+// One client per region + key, lazily created.
 const clients = new Map<string, SESClient>();
 
-function clientFor(region: string): SESClient {
-  let c = clients.get(region);
+function clientFor(region: string, credentials?: SesCredentials): SESClient {
+  const cacheKey = `${region}:${credentials?.accessKeyId ?? ""}`;
+  let c = clients.get(cacheKey);
   if (!c) {
-    c = new SESClient({ region });
-    clients.set(region, c);
+    // No explicit credentials -> AWS SDK default chain (env vars, IAM role, …).
+    c = new SESClient({ region, ...(credentials ? { credentials } : {}) });
+    clients.set(cacheKey, c);
   }
   return c;
 }
@@ -20,6 +24,7 @@ export type SendArgs = {
   subject: string;
   html: string;
   region: string;
+  credentials?: SesCredentials;
 };
 
 export async function sendEmail(args: SendArgs): Promise<{ messageId: string; dryRun: boolean }> {
@@ -42,6 +47,6 @@ export async function sendEmail(args: SendArgs): Promise<{ messageId: string; dr
     },
   });
 
-  const res = await clientFor(args.region).send(cmd);
+  const res = await clientFor(args.region, args.credentials).send(cmd);
   return { messageId: res.MessageId ?? "unknown", dryRun: false };
 }

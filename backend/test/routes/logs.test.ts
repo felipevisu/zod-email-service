@@ -49,6 +49,15 @@ describe("GET /api/logs", () => {
     );
   });
 
+  it("filters by sender email", async () => {
+    prismaMock.emailLog.findMany.mockResolvedValue([]);
+    prismaMock.emailLog.count.mockResolvedValue(0);
+    await agent.get("/api/logs").query({ sender: "no-reply@acme.com" });
+    expect(prismaMock.emailLog.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { senderEmail: "no-reply@acme.com" } })
+    );
+  });
+
   it("search matches subject OR recipient", async () => {
     prismaMock.emailLog.findMany.mockResolvedValue([]);
     prismaMock.emailLog.count.mockResolvedValue(0);

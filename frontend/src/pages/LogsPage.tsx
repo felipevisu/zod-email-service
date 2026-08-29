@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api, EmailLog, LogStats, LogsResponse } from "../lib/api";
+import { api, EmailLog, LogStats, LogsResponse, Sender } from "../lib/api";
 import { Badge, Button, Card, Input } from "../components/ui";
 
 const PAGE = 50;
@@ -73,6 +73,7 @@ function LogRow({ log }: { log: EmailLog }) {
 
 export default function LogsPage() {
   const [status, setStatus] = useState<StatusFilter>("");
+  const [sender, setSender] = useState("");
   const [search, setSearch] = useState("");
   const [from, setFrom] = useState(""); // yyyy-mm-dd
   const [to, setTo] = useState(""); // yyyy-mm-dd
@@ -80,6 +81,7 @@ export default function LogsPage() {
 
   const params = new URLSearchParams();
   if (status) params.set("status", status);
+  if (sender) params.set("sender", sender);
   if (search) params.set("search", search);
   if (from) params.set("from", new Date(`${from}T00:00:00`).toISOString());
   if (to) params.set("to", new Date(`${to}T23:59:59.999`).toISOString());
@@ -92,8 +94,13 @@ export default function LogsPage() {
     refetchInterval: 10_000,
   });
 
+  const { data: senders = [] } = useQuery({
+    queryKey: ["senders"],
+    queryFn: () => api.get<Sender[]>("/senders"),
+  });
+
   const { data, isLoading } = useQuery({
-    queryKey: ["logs", status, search, from, to, page],
+    queryKey: ["logs", status, sender, search, from, to, page],
     queryFn: () => api.get<LogsResponse>(`/logs?${params.toString()}`),
     refetchInterval: 10_000,
   });
@@ -135,6 +142,21 @@ export default function LogsPage() {
           {tab("SENT", "Sent")}
           {tab("FAILED", "Failed")}
         </div>
+        <select
+          className="border border-slate-300 rounded-md px-3 py-2 text-sm bg-white"
+          value={sender}
+          onChange={(e) => {
+            setSender(e.target.value);
+            setPage(0);
+          }}
+        >
+          <option value="">All senders</option>
+          {senders.map((s) => (
+            <option key={s.id} value={s.email}>
+              {s.name} &lt;{s.email}&gt;
+            </option>
+          ))}
+        </select>
         <div className="flex-1 min-w-[220px]">
           <Input
             placeholder="Search subject or recipient…"

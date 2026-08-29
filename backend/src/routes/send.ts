@@ -5,7 +5,9 @@ import { h, HttpError } from "../lib/http.js";
 import { requireApiKey } from "../lib/apiKey.js";
 import { jsonSchemaToZod } from "../lib/jsonSchemaToZod.js";
 import { render } from "../services/render.js";
-import { sendEmail } from "../services/ses.js";
+import { sendEmail, SesCredentials } from "../services/ses.js";
+import { sendViaResend } from "../services/resend.js";
+import { open } from "../lib/crypto.js";
 
 export const send = Router();
 
@@ -162,24 +164,39 @@ send.post(
       throw new HttpError(500, "render_error", { errors: rendered.errors });
     }
 
+    const sender = version.sender;
+    const creds = sender.credentials ? (JSON.parse(open(sender.credentials)) as Record<string, string>) : null;
+    const mail = {
+      from: `${sender.name} <${sender.email}>`,
+      to: recipients,
+      subject: rendered.subject,
+      html: rendered.html,
+    };
+
     let result: { messageId: string; dryRun: boolean };
     try {
-      result = await sendEmail({
-        from: `${version.sender.name} <${version.sender.email}>`,
-        to: recipients,
-        subject: rendered.subject,
-        html: rendered.html,
-        region: version.sender.region,
-      });
+      if (sender.provider === "RESEND") {
+        if (!creds?.apiKey) throw new HttpError(409, "sender_credentials_missing");
+        result = await sendViaResend({ ...mail, apiKey: creds.apiKey });
+      } else {
+        // SES: per-sender credentials, or the AWS default chain when none stored.
+        result = await sendEmail({
+          ...mail,
+          region: sender.region,
+          credentials: creds ? (creds as SesCredentials) : undefined,
+        });
+      }
     } catch (e) {
+      const errorCode = e instanceof HttpError ? e.message : "send_failed";
       await logFailure({
         ...base,
         to: recipients,
         subject: rendered.subject,
-        errorCode: "ses_send_failed",
+        errorCode,
         errorDetail: e instanceof Error ? e.message : String(e),
       });
-      throw new HttpError(502, "ses_send_failed", {
+      if (e instanceof HttpError) throw e;
+      throw new HttpError(502, "send_failed", {
         message: e instanceof Error ? e.message : String(e),
       });
     }

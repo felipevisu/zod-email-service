@@ -8,13 +8,20 @@ datasource db {
 }
 
 // A verified AWS SES sending identity (e.g. "no-reply@acme.com").
+enum SenderProvider {
+  SES
+  RESEND
+}
+
 model Sender {
-  id        String    @id @default(cuid())
-  name      String
-  email     String    @unique
-  region    String    @default("us-east-1")
-  createdAt DateTime  @default(now())
-  versions  Version[]
+  id          String         @id @default(cuid())
+  name        String
+  email       String         @unique
+  provider    SenderProvider @default(SES)
+  region      String         @default("us-east-1") // SES only
+  credentials String? // AES-256-GCM encrypted JSON, see lib/crypto.ts
+  createdAt   DateTime       @default(now())
+  versions    Version[]
 }
 
 // Top-level group, e.g. "accounts". Maps to the first path segment.

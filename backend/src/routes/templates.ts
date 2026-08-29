@@ -25,6 +25,16 @@ templates.get(
         include: {
           category: true,
           _count: { select: { versions: true } },
+          // Newest-first versions with their sender, so the UI can group
+          // templates under the published (or latest) version's sender.
+          versions: {
+            orderBy: { version: "desc" },
+            select: {
+              version: true,
+              status: true,
+              sender: { select: { id: true, name: true, email: true } },
+            },
+          },
         },
       })
     );

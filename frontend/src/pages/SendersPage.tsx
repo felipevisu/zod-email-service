@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, Sender } from "../lib/api";
-import { Button, Card, Field, Input } from "../components/ui";
+import { api, Sender, SenderProvider } from "../lib/api";
+import { Badge, Button, Card, Field, Input } from "../components/ui";
 
 export default function SendersPage() {
   const qc = useQueryClient();
@@ -12,13 +12,33 @@ export default function SendersPage() {
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [provider, setProvider] = useState<SenderProvider>("SES");
   const [region, setRegion] = useState("us-east-1");
+  const [accessKeyId, setAccessKeyId] = useState("");
+  const [secretAccessKey, setSecretAccessKey] = useState("");
+  const [apiKey, setApiKey] = useState("");
+
+  const hasCreds = provider === "SES" ? accessKeyId && secretAccessKey : apiKey;
 
   const create = useMutation({
-    mutationFn: () => api.post<Sender>("/senders", { name, email, region }),
+    mutationFn: () =>
+      api.post<Sender>("/senders", {
+        name,
+        email,
+        provider,
+        region,
+        credentials: !hasCreds
+          ? null
+          : provider === "SES"
+            ? { accessKeyId, secretAccessKey }
+            : { apiKey },
+      }),
     onSuccess: () => {
       setName("");
       setEmail("");
+      setAccessKeyId("");
+      setSecretAccessKey("");
+      setApiKey("");
       qc.invalidateQueries({ queryKey: ["senders"] });
     },
   });
@@ -32,7 +52,9 @@ export default function SendersPage() {
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Senders</h1>
       <p className="text-sm text-slate-500">
-        Each sender must be a verified identity in AWS SES for its region.
+        SES senders must be verified identities in their region. Resend senders need a verified
+        domain in Resend. Credentials are stored encrypted; without them, SES falls back to the
+        server&apos;s AWS credential chain.
       </p>
 
       <Card className="p-4">
@@ -52,12 +74,64 @@ export default function SendersPage() {
               />
             </Field>
           </div>
-          <div className="w-40">
-            <Field label="Region">
-              <Input value={region} onChange={(e) => setRegion(e.target.value)} />
+          <div className="w-36">
+            <Field label="Provider">
+              <select
+                className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm"
+                value={provider}
+                onChange={(e) => setProvider(e.target.value as SenderProvider)}
+              >
+                <option value="SES">AWS SES</option>
+                <option value="RESEND">Resend</option>
+              </select>
             </Field>
           </div>
-          <Button onClick={() => create.mutate()} disabled={!name || !email || create.isPending}>
+          {provider === "SES" && (
+            <div className="w-40">
+              <Field label="Region">
+                <Input value={region} onChange={(e) => setRegion(e.target.value)} />
+              </Field>
+            </div>
+          )}
+        </div>
+        <div className="flex gap-3 items-end flex-wrap mt-3">
+          {provider === "SES" ? (
+            <>
+              <div className="w-64">
+                <Field label="Access key ID (optional)">
+                  <Input
+                    placeholder="AKIA…"
+                    value={accessKeyId}
+                    onChange={(e) => setAccessKeyId(e.target.value)}
+                  />
+                </Field>
+              </div>
+              <div className="flex-1 min-w-[220px]">
+                <Field label="Secret access key">
+                  <Input
+                    type="password"
+                    value={secretAccessKey}
+                    onChange={(e) => setSecretAccessKey(e.target.value)}
+                  />
+                </Field>
+              </div>
+            </>
+          ) : (
+            <div className="flex-1 min-w-[280px]">
+              <Field label="Resend API key">
+                <Input
+                  type="password"
+                  placeholder="re_…"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                />
+              </Field>
+            </div>
+          )}
+          <Button
+            onClick={() => create.mutate()}
+            disabled={!name || !email || (provider === "RESEND" && !apiKey) || create.isPending}
+          >
             Add
           </Button>
         </div>
@@ -70,10 +144,16 @@ export default function SendersPage() {
         <div className="space-y-2">
           {senders.map((s) => (
             <Card key={s.id} className="p-3 flex items-center justify-between">
-              <div>
+              <div className="flex items-center gap-2">
+                <Badge color={s.provider === "RESEND" ? "purple" : "blue"}>{s.provider}</Badge>
                 <span className="font-semibold">{s.name}</span>{" "}
                 <span className="text-slate-500">&lt;{s.email}&gt;</span>
-                <span className="text-xs text-slate-400 ml-2">{s.region}</span>
+                {s.provider === "SES" && <span className="text-xs text-slate-400">{s.region}</span>}
+                {s.hasCredentials ? (
+                  <Badge color="green">credentials set</Badge>
+                ) : (
+                  <span className="text-xs text-slate-400">no credentials</span>
+                )}
               </div>
               <Button variant="danger" onClick={() => remove.mutate(s.id)}>
                 Delete

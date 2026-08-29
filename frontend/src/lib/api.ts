@@ -40,7 +40,15 @@ export const api = {
 };
 
 // ---- Types (mirror the Prisma models) ----
-export type Sender = { id: string; name: string; email: string; region: string };
+export type SenderProvider = "SES" | "RESEND";
+export type Sender = {
+  id: string;
+  name: string;
+  email: string;
+  provider: SenderProvider;
+  region: string;
+  hasCredentials: boolean;
+};
 export type Category = { id: string; slug: string; name: string; _count?: { templates: number } };
 export type Template = {
   id: string;
@@ -50,6 +58,10 @@ export type Template = {
   category?: Category;
   _count?: { versions: number };
   versions?: Version[];
+};
+// Shape returned by GET /templates for the sender-grouped home page.
+export type TemplateWithSenders = Template & {
+  versions: { version: number; status: VersionStatus; sender: Pick<Sender, "id" | "name" | "email"> | null }[];
 };
 export type VersionStatus = "DRAFT" | "PUBLISHED";
 export type Version = {
