@@ -25,15 +25,18 @@ model Sender {
 }
 
 // Group of emails owned by one sender, e.g. "accounts". Maps to the first
-// path segment; slug stays globally unique so the send URL is unambiguous.
+// path segment of the send URL; slug is unique per sender, so two senders may
+// both own "accounts" and the send URL resolves whichever matches first.
 model Category {
   id        String     @id @default(cuid())
-  slug      String     @unique
+  slug      String
   name      String
   senderId  String
   sender    Sender     @relation(fields: [senderId], references: [id], onDelete: Restrict)
   createdAt DateTime   @default(now())
   templates Template[]
+
+  @@unique([senderId, slug])
 }
 
 // An email template, e.g. "password-recovery". Unique within a category.
