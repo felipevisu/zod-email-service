@@ -153,7 +153,7 @@ async function main() {
   });
 
   const category = await prisma.category.upsert({
-    where: { slug: "documents" },
+    where: { senderId_slug: { senderId: sender.id, slug: "documents" } },
     update: {},
     create: { slug: "documents", name: "Documents", senderId: sender.id },
   });

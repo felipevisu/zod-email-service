@@ -124,7 +124,7 @@ async function main() {
   });
 
   const category = await prisma.category.upsert({
-    where: { slug: "admin" },
+    where: { senderId_slug: { senderId: sender.id, slug: "admin" } },
     update: {},
     create: { slug: "admin", name: "Admin", senderId: sender.id },
   });
