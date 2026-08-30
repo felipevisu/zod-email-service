@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, apiKeys, ApiKey, CreatedApiKey, Template } from "../lib/api";
+import { api, apiKeys, ApiKey, CreatedApiKey, Sender, Template } from "../lib/api";
 import { Badge, Button, Card, Field, Input } from "../components/ui";
 
 function statusBadge(k: ApiKey) {
@@ -48,8 +48,13 @@ export default function ApiKeysPage() {
     queryKey: ["templates"],
     queryFn: () => api.get<Template[]>("/templates"),
   });
+  const { data: senders = [] } = useQuery({
+    queryKey: ["senders"],
+    queryFn: () => api.get<Sender[]>("/senders"),
+  });
 
   const [name, setName] = useState("");
+  const [senderId, setSenderId] = useState("");
   const [scope, setScope] = useState<"ALL" | "SELECTED">("ALL");
   const [templateIds, setTemplateIds] = useState<string[]>([]);
   const [permanent, setPermanent] = useState(true);
@@ -60,6 +65,7 @@ export default function ApiKeysPage() {
     mutationFn: () =>
       apiKeys.create({
         name,
+        senderId,
         scope,
         templateIds: scope === "SELECTED" ? templateIds : undefined,
         expiresAt: permanent || !expiresAt ? undefined : new Date(expiresAt).toISOString(),
@@ -67,6 +73,7 @@ export default function ApiKeysPage() {
     onSuccess: (key) => {
       setCreated(key);
       setName("");
+      setSenderId("");
       setScope("ALL");
       setTemplateIds([]);
       setPermanent(true);
@@ -84,7 +91,10 @@ export default function ApiKeysPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["api-keys"] }),
   });
 
-  const canCreate = name.trim() && (scope === "ALL" || templateIds.length > 0) && !create.isPending;
+  const canCreate = name.trim() && senderId && (scope === "ALL" || templateIds.length > 0) && !create.isPending;
+
+  // Only the chosen sender's templates can be granted.
+  const senderTemplates = templates.filter((t) => t.category?.senderId === senderId);
 
   function toggleTemplate(id: string) {
     setTemplateIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
@@ -94,9 +104,9 @@ export default function ApiKeysPage() {
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">API keys</h1>
       <p className="text-sm text-slate-500">
-        Keys authorize internal services to call the send API. Give a key full access to every
-        template, or scope it to a specific set. Scope is fixed once created — to change it, revoke
-        and create a new key.
+        Keys authorize internal services to call the send API. Each key belongs to one sender and can
+        only send that sender's templates — all of them, or a specific set. Scope is fixed once
+        created — to change it, revoke and create a new key.
       </p>
 
       <Card className="p-4 space-y-4">
@@ -105,6 +115,25 @@ export default function ApiKeysPage() {
           <div className="flex-1 min-w-[220px]">
             <Field label="Name">
               <Input placeholder="billing-service prod" value={name} onChange={(e) => setName(e.target.value)} />
+            </Field>
+          </div>
+          <div className="w-56">
+            <Field label="Sender">
+              <select
+                className="w-full border rounded-md px-3 py-2 text-sm"
+                value={senderId}
+                onChange={(e) => {
+                  setSenderId(e.target.value);
+                  setTemplateIds([]); // grants belong to one sender
+                }}
+              >
+                <option value="">Select a sender…</option>
+                {senders.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name} ({s.email})
+                  </option>
+                ))}
+              </select>
             </Field>
           </div>
           <div className="w-48">
@@ -125,8 +154,11 @@ export default function ApiKeysPage() {
           <div>
             <span className="block text-xs font-medium text-slate-500 mb-1">Templates</span>
             <div className="max-h-48 overflow-auto border rounded-md p-2 space-y-1">
-              {templates.length === 0 && <p className="text-sm text-slate-400 px-1">No templates yet.</p>}
-              {templates.map((t) => (
+              {!senderId && <p className="text-sm text-slate-400 px-1">Select a sender first.</p>}
+              {senderId && senderTemplates.length === 0 && (
+                <p className="text-sm text-slate-400 px-1">This sender has no templates yet.</p>
+              )}
+              {senderTemplates.map((t) => (
                 <label key={t.id} className="flex items-center gap-2 text-sm px-1 py-0.5">
                   <input
                     type="checkbox"
@@ -181,6 +213,7 @@ export default function ApiKeysPage() {
                     <Badge color={k.scope === "ALL" ? "slate" : "amber"}>
                       {k.scope === "ALL" ? "All templates" : "Selected"}
                     </Badge>
+                    {k.sender && <span className="text-xs text-slate-500">{k.sender.name}</span>}
                   </div>
                   <div className="text-xs text-slate-400 mt-1">
                     <code>{k.hint}</code>

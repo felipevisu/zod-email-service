@@ -43,6 +43,7 @@ function keyRow(over: Record<string, unknown> = {}) {
   return {
     id: "k1",
     name: "test key",
+    senderId: "s1",
     prefix: KEY.prefix,
     hashedKey: KEY.hashedKey,
     hint: KEY.hint,
@@ -345,13 +346,14 @@ describe("POST /:category/:template/:version — render + send", () => {
     expect(sendViaResendMock).not.toHaveBeenCalled();
   });
 
-  it("resolves the version by category + template slug + version number", async () => {
+  it("resolves the version by category + template slug + version number, scoped to the key's sender", async () => {
     prismaMock.version.findFirst.mockResolvedValue(publishedVersion());
     sendEmailMock.mockResolvedValue({ messageId: "m", dryRun: false });
     await send("/accounts/welcome/v3").send({ to: "a@b.com", data: { name: "Q" } });
     expect(prismaMock.version.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { version: 3, template: { slug: "welcome", category: { slug: "accounts" } } },
+        // senderId comes from the API key: slugs are only unique per sender.
+        where: { version: 3, template: { slug: "welcome", category: { slug: "accounts", senderId: "s1" } } },
         include: { template: { include: { category: { include: { sender: true } } } } },
       })
     );

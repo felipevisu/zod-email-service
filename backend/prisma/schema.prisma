@@ -22,6 +22,7 @@ model Sender {
   credentials String? // AES-256-GCM encrypted JSON, see lib/crypto.ts
   createdAt   DateTime       @default(now())
   categories  Category[]
+  apiKeys     ApiKey[]
 }
 
 // Group of emails owned by one sender, e.g. "accounts". Maps to the first
@@ -59,15 +60,19 @@ enum VersionStatus {
 }
 
 enum ApiKeyScope {
-  ALL // may send any template on the platform
+  ALL // may send any template of the key's sender
   SELECTED // restricted to the templates in ApiKeyTemplate
 }
 
 // A credential distributed to an internal service to call the send API.
 // The raw key is shown once at creation; only its hash is persisted.
+// Every key belongs to one sender: the send URL's category slug is resolved
+// within that sender, which keeps per-sender slugs unambiguous.
 model ApiKey {
   id         String           @id @default(cuid())
   name       String // dashboard label, e.g. "billing-service prod"
+  senderId   String
+  sender     Sender           @relation(fields: [senderId], references: [id], onDelete: Restrict)
   prefix     String           @unique // public lookup handle (es_<prefix>_...)
   hashedKey  String // sha256 of the secret portion; raw key never stored
   hint       String // masked display, e.g. "es_a1b2…f9"

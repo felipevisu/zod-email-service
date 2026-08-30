@@ -18,12 +18,14 @@ const PUBLIC_SELECT = {
   lastUsedAt: true,
   createdBy: true,
   createdAt: true,
+  sender: { select: { id: true, name: true, email: true } },
   templates: { select: { template: { select: { id: true, slug: true, name: true } } } },
 } as const;
 
 const createInput = z
   .object({
     name: z.string().min(1),
+    senderId: z.string().min(1),
     scope: z.enum(["ALL", "SELECTED"]),
     templateIds: z.array(z.string().min(1)).default([]),
     expiresAt: z.coerce.date().optional(), // omit = permanent
@@ -40,8 +42,14 @@ apiKeys.post(
     const input = createInput.parse(req.body);
     const templateIds = input.scope === "ALL" ? [] : input.templateIds;
 
+    const sender = await prisma.sender.findUnique({ where: { id: input.senderId } });
+    if (!sender) throw new HttpError(422, "unknown_sender_id");
+
+    // Granted templates must belong to the key's sender.
     if (templateIds.length) {
-      const found = await prisma.template.count({ where: { id: { in: templateIds } } });
+      const found = await prisma.template.count({
+        where: { id: { in: templateIds }, category: { senderId: input.senderId } },
+      });
       if (found !== new Set(templateIds).size) throw new HttpError(422, "unknown_template_id");
     }
 
@@ -51,6 +59,7 @@ apiKeys.post(
     const key = await prisma.apiKey.create({
       data: {
         name: input.name,
+        senderId: input.senderId,
         prefix: gen.prefix,
         hashedKey: gen.hashedKey,
         hint: gen.hint,

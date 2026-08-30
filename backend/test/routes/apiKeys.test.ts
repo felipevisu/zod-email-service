@@ -45,14 +45,19 @@ describe("auth", () => {
 });
 
 describe("POST /api/api-keys", () => {
+  beforeEach(() => {
+    prismaMock.sender.findUnique.mockResolvedValue({ id: "s1", name: "Acme", email: "no-reply@acme.com" });
+  });
+
   it("creates an ALL-scope key and returns the raw key exactly once", async () => {
     prismaMock.apiKey.create.mockResolvedValue({ id: "k1", name: "svc", scope: "ALL", prefix: "abcd", hint: "es_abcd…1234" });
-    const res = await agent.post("/api/api-keys").send({ name: "svc", scope: "ALL" });
+    const res = await agent.post("/api/api-keys").send({ name: "svc", scope: "ALL", senderId: "s1" });
     expect(res.status).toBe(201);
     expect(res.body.key).toMatch(/^es_[0-9a-f]+_[0-9a-f]+$/); // raw key present
     expect(res.body).not.toHaveProperty("hashedKey"); // never the hash
     const data = prismaMock.apiKey.create.mock.calls[0][0].data;
     expect(data.scope).toBe("ALL");
+    expect(data.senderId).toBe("s1");
     expect(data.createdBy).toBe("admin");
     expect(data.templates.create).toEqual([]); // ALL stores no grants
     expect(data.hashedKey).toBeTruthy();
@@ -63,38 +68,53 @@ describe("POST /api/api-keys", () => {
     prismaMock.apiKey.create.mockResolvedValue({ id: "k2", scope: "SELECTED" });
     const res = await agent
       .post("/api/api-keys")
-      .send({ name: "billing", scope: "SELECTED", templateIds: ["t1", "t2"] });
+      .send({ name: "billing", scope: "SELECTED", senderId: "s1", templateIds: ["t1", "t2"] });
     expect(res.status).toBe(201);
-    expect(prismaMock.template.count).toHaveBeenCalledWith({ where: { id: { in: ["t1", "t2"] } } });
+    // grants must be validated against the key's sender
+    expect(prismaMock.template.count).toHaveBeenCalledWith({
+      where: { id: { in: ["t1", "t2"] }, category: { senderId: "s1" } },
+    });
     const data = prismaMock.apiKey.create.mock.calls[0][0].data;
     expect(data.templates.create).toEqual([{ templateId: "t1" }, { templateId: "t2" }]);
   });
 
   it("422s when SELECTED has no templateIds", async () => {
-    const res = await agent.post("/api/api-keys").send({ name: "x", scope: "SELECTED", templateIds: [] });
+    const res = await agent
+      .post("/api/api-keys")
+      .send({ name: "x", scope: "SELECTED", senderId: "s1", templateIds: [] });
     expect(res.status).toBe(422);
     expect(prismaMock.apiKey.create).not.toHaveBeenCalled();
   });
 
-  it("422s when a templateId does not exist", async () => {
-    prismaMock.template.count.mockResolvedValue(1); // only 1 of 2 found
+  it("422s when the sender does not exist", async () => {
+    prismaMock.sender.findUnique.mockResolvedValue(null);
+    const res = await agent.post("/api/api-keys").send({ name: "x", scope: "ALL", senderId: "ghost" });
+    expect(res.status).toBe(422);
+    expect(res.body.error).toBe("unknown_sender_id");
+    expect(prismaMock.apiKey.create).not.toHaveBeenCalled();
+  });
+
+  it("422s when a templateId does not exist or belongs to another sender", async () => {
+    prismaMock.template.count.mockResolvedValue(1); // only 1 of 2 found under this sender
     const res = await agent
       .post("/api/api-keys")
-      .send({ name: "x", scope: "SELECTED", templateIds: ["t1", "ghost"] });
+      .send({ name: "x", scope: "SELECTED", senderId: "s1", templateIds: ["t1", "ghost"] });
     expect(res.status).toBe(422);
     expect(res.body.error).toBe("unknown_template_id");
   });
 
   it("stores expiresAt when provided", async () => {
     prismaMock.apiKey.create.mockResolvedValue({ id: "k3" });
-    await agent.post("/api/api-keys").send({ name: "temp", scope: "ALL", expiresAt: "2026-12-31T00:00:00Z" });
+    await agent
+      .post("/api/api-keys")
+      .send({ name: "temp", scope: "ALL", senderId: "s1", expiresAt: "2026-12-31T00:00:00Z" });
     const data = prismaMock.apiKey.create.mock.calls[0][0].data;
     expect(data.expiresAt).toBeInstanceOf(Date);
   });
 
   it("defaults expiresAt to null (permanent) when omitted", async () => {
     prismaMock.apiKey.create.mockResolvedValue({ id: "k4" });
-    await agent.post("/api/api-keys").send({ name: "perma", scope: "ALL" });
+    await agent.post("/api/api-keys").send({ name: "perma", scope: "ALL", senderId: "s1" });
     expect(prismaMock.apiKey.create.mock.calls[0][0].data.expiresAt).toBeNull();
   });
 });

@@ -78,7 +78,8 @@ send.post(
   h(async (req, res) => {
     const { category, template } = req.params;
     const versionNumber = parseVersionParam(req.params.version);
-    const apiKey = (req as typeof req & { apiKey?: { id: string; name: string; scope: string } }).apiKey!;
+    const apiKey = (req as typeof req & { apiKey?: { id: string; name: string; scope: string; senderId: string } })
+      .apiKey!;
 
     // Resolve recipients early so failures can still be logged with a target.
     const toList = (() => {
@@ -88,10 +89,13 @@ send.post(
       return [];
     })();
 
+    // Category slugs are only unique per sender, so resolve within the API
+    // key's sender — this also keeps a key from ever sending another
+    // sender's templates.
     const version = await prisma.version.findFirst({
       where: {
         version: versionNumber,
-        template: { slug: template, category: { slug: category } },
+        template: { slug: template, category: { slug: category, senderId: apiKey.senderId } },
       },
       // The sender is the owner of the template's category.
       include: { template: { include: { category: { include: { sender: true } } } } },

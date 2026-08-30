@@ -112,6 +112,7 @@ export type ApiKey = {
   lastUsedAt: string | null;
   createdBy: string | null;
   createdAt: string;
+  sender: { id: string; name: string; email: string };
   templates: { template: { id: string; slug: string; name: string } }[];
 };
 // Returned only by create: includes the raw key, shown to the user once.
@@ -119,6 +120,7 @@ export type CreatedApiKey = ApiKey & { key: string };
 
 export type CreateApiKeyInput = {
   name: string;
+  senderId: string;
   scope: ApiKeyScope;
   templateIds?: string[];
   expiresAt?: string; // ISO; omit for permanent
